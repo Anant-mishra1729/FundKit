@@ -1,4 +1,4 @@
-from __future__ import annotations
+from __future__ import annotations  # noqa: D100
 
 import asyncio
 from types import TracebackType
@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 
 class SchemeParser:
+    """Async HTTP client for fetching NAV data from the AMFI portal."""
+
     _NAV_URL = "https://portal.amfiindia.com/spages/NAVAll.txt"
 
     async def __aenter__(self) -> Self:
@@ -31,6 +33,22 @@ class SchemeParser:
     async def fetch_nav_data(
         self, df_format: OUTPUT_DATAFRAME_FORMAT = "polars"
     ) -> pl.DataFrame | pd.DataFrame:
+        """Fetch NAV data from AFMI-India website and return a DataFrame.
+
+        Args:
+            df_format (["polars", "pandas"], optional): Return DataFrame type
+            Defaults to "polars".
+
+        Raises:
+            httpx.HTTPStatusError: On incorrect HTTP response.
+            httpx.RequestError: On network / connection failure.
+            ValueError: If the AMFI response is empty or malformed.
+            ModuleNotFoundError: If the df_format="pandas" is used and pandas is not installed.
+
+        Returns:
+            pl.DataFrame | pd.DataFrame: A typed DataFrame with NAV Data.
+
+        """
         raw_text = await self._fetch()
         df = self._parse(raw_text)
         if df_format == "pandas":
@@ -79,6 +97,7 @@ class SchemeParser:
 if __name__ == "__main__":
 
     async def main() -> None:
+        """Test function."""
         async with SchemeParser() as client:
             data = await client.fetch_nav_data()
             print(data)

@@ -16,7 +16,10 @@ requires = ["uv_build>=0.11.12,<0.12.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
-dev = ["pandas-stubs>=3.0.0.260204"]
+dev = [
+    "pandas>=3.0.3",
+    "pandas-stubs>=3.0.0.260204",
+]
 
 [tool.ruff]
 target-version = "py312"
@@ -29,6 +32,7 @@ select = [
     "W",     # pycodestyle warnings
     "F",     # pyflakes
     "I",     # isort
+    "D",     # docstring
     "B",     # flake8-bugbear
     "C4",    # flake8-comprehensions
     "UP",    # pyupgrade
@@ -47,7 +51,10 @@ ignore = [
     "ANN101", # self type annotation not required
     "ANN102", # cls type annotation not required
     "TRY003", # allow custom exception messages inline
+    "D105",   # Missing docstring in magic method (e.g., __str__, __init__)
+    "D107",   # Missing docstring in __init__
 ]
+
 
 fixable = ["ALL"]
 
