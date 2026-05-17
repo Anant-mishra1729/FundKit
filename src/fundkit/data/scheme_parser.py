@@ -13,6 +13,12 @@ class SchemeParser:
 
     _NAV_URL = "https://portal.amfiindia.com/spages/NAVAll.txt"
 
+    _SCHEME_TYPE_PREFIXES = (
+        "Open Ended Schemes",
+        "Close Ended Schemes",
+        "Interval Fund",
+    )
+
     async def __aenter__(self) -> Self:
         self._client = httpx.AsyncClient(timeout=10.0)
         return self
@@ -25,12 +31,8 @@ class SchemeParser:
     ) -> None:
         await self._client.aclose()
 
-    async def fetch_nav_data(self, snake_case_headers: bool = True) -> pl.DataFrame:
+    async def fetch_nav_data(self) -> pl.DataFrame:
         """Fetch NAV data from AFMI-India website and return a DataFrame.
-
-        Args:
-            snake_case_headers (bool, optional): Get the column names in snake case format.
-            Defaults to True.
 
         Raises:
             httpx.HTTPStatusError: On incorrect HTTP response.
@@ -43,7 +45,7 @@ class SchemeParser:
 
         """
         raw_text = await self._fetch()
-        return self._parse(raw_text, snake_case_headers=snake_case_headers)
+        return self._parse(raw_text)
 
     async def _fetch(self) -> str:
         try:
@@ -60,22 +62,41 @@ class SchemeParser:
         else:
             return response.text
 
-    def _parse(self, nav_text: str, snake_case_headers: bool = True) -> pl.DataFrame:
-        rows = [line.split(";") for line in nav_text.splitlines() if ";" in line]
+    def _parse(self, nav_text: str) -> pl.DataFrame:
+        rows = [line.strip() for line in nav_text.splitlines() if line.strip()]
 
         if len(rows) < 2:
             raise ValueError(f"Incorrect AFMI response: expected at least 2 rows, but received {len(rows)}.")
-        headers, *data = rows
-        df = pl.DataFrame(data=data, schema=headers, orient="row").with_columns(
-            pl.col("Scheme Code").cast(pl.Int64),
-            pl.col("ISIN Div Payout/ ISIN Growth").cast(pl.String),
-            pl.col("ISIN Div Reinvestment").cast(pl.String),
-            pl.col("Scheme Name").cast(pl.String),
-            pl.col("Net Asset Value").cast(pl.Float64),
-            pl.col("Date").str.to_date(format="%d-%b-%Y"),
-        )
-        if snake_case_headers:
-            return df.rename(
+        headers = [*rows[0].split(";"), "Parent Mutual Fund", "Mutual Fund Type"]
+        lines = rows[1:]
+
+        parent_mf: str | None = None
+        mf_type: str | None = None
+        data: list[list[str | None]] = []
+        # Parsing rows
+        for line in lines:
+            if ";" in line:
+                data.append([*line.split(";"), parent_mf, mf_type])
+            else:
+                parent_mf = None
+                if line.startswith(self._SCHEME_TYPE_PREFIXES):
+                    mf_type = line
+                else:
+                    parent_mf = line
+
+        return (
+            pl.DataFrame(data=data, schema=headers, orient="row")
+            .with_columns(
+                pl.col("Scheme Code").cast(pl.Int64),
+                pl.col("ISIN Div Payout/ ISIN Growth").cast(pl.String),
+                pl.col("ISIN Div Reinvestment").cast(pl.String),
+                pl.col("Scheme Name").cast(pl.String),
+                pl.col("Net Asset Value").cast(pl.Float64),
+                pl.col("Date").str.to_date(format="%d-%b-%Y"),
+                pl.col("Parent Mutual Fund").cast(pl.String),
+                pl.col("Mutual Fund Type").cast(pl.String),
+            )
+            .rename(
                 {
                     "Scheme Code": "scheme_code",
                     "ISIN Div Payout/ ISIN Growth": "isin_growth_or_payout",
@@ -83,9 +104,11 @@ class SchemeParser:
                     "Scheme Name": "scheme_name",
                     "Net Asset Value": "nav",
                     "Date": "date",
+                    "Parent Mutual Fund": "parent_mf",
+                    "Mutual Fund Type": "mf_type",
                 }
             )
-        return df
+        )
 
 
 if __name__ == "__main__":
