@@ -2,15 +2,10 @@ from __future__ import annotations  # noqa: D100
 
 import asyncio
 from types import TracebackType
-from typing import TYPE_CHECKING, Literal, Self
+from typing import Self
 
 import httpx
 import polars as pl
-
-OUTPUT_DATAFRAME_FORMAT = Literal["polars", "pandas"]
-
-if TYPE_CHECKING:
-    import pandas as pd  # type: ignore[import,unused-ignore]
 
 
 class SchemeParser:
@@ -30,14 +25,12 @@ class SchemeParser:
     ) -> None:
         await self._client.aclose()
 
-    async def fetch_nav_data(
-        self, df_format: OUTPUT_DATAFRAME_FORMAT = "polars"
-    ) -> pl.DataFrame | pd.DataFrame:
+    async def fetch_nav_data(self, snake_case_headers: bool = True) -> pl.DataFrame:
         """Fetch NAV data from AFMI-India website and return a DataFrame.
 
         Args:
-            df_format (["polars", "pandas"], optional): Return DataFrame type
-            Defaults to "polars".
+            snake_case_headers (bool, optional): Get the column names in snake case format.
+            Defaults to True.
 
         Raises:
             httpx.HTTPStatusError: On incorrect HTTP response.
@@ -46,20 +39,11 @@ class SchemeParser:
             ModuleNotFoundError: If the df_format="pandas" is used and pandas is not installed.
 
         Returns:
-            pl.DataFrame | pd.DataFrame: A typed DataFrame with NAV Data.
+            pl.DataFrame: A typed DataFrame with NAV Data.
 
         """
         raw_text = await self._fetch()
-        df = self._parse(raw_text)
-        if df_format == "pandas":
-            try:
-                return df.to_pandas()
-            except ModuleNotFoundError as e:
-                raise ModuleNotFoundError(
-                    'Pandas is required to use `df_format="pandas"`. '
-                    "Install it via `pip install pandas`."
-                ) from e
-        return df
+        return self._parse(raw_text, snake_case_headers=snake_case_headers)
 
     async def _fetch(self) -> str:
         try:
@@ -76,15 +60,13 @@ class SchemeParser:
         else:
             return response.text
 
-    def _parse(self, nav_text: str) -> pl.DataFrame:
+    def _parse(self, nav_text: str, snake_case_headers: bool = True) -> pl.DataFrame:
         rows = [line.split(";") for line in nav_text.splitlines() if ";" in line]
 
         if len(rows) < 2:
-            raise ValueError(
-                f"Incorrect AFMI response: expected at least 2 rows, but received {len(rows)}."
-            )
+            raise ValueError(f"Incorrect AFMI response: expected at least 2 rows, but received {len(rows)}.")
         headers, *data = rows
-        return pl.DataFrame(data=data, schema=headers, orient="row").with_columns(
+        df = pl.DataFrame(data=data, schema=headers, orient="row").with_columns(
             pl.col("Scheme Code").cast(pl.Int64),
             pl.col("ISIN Div Payout/ ISIN Growth").cast(pl.String),
             pl.col("ISIN Div Reinvestment").cast(pl.String),
@@ -92,6 +74,18 @@ class SchemeParser:
             pl.col("Net Asset Value").cast(pl.Float64),
             pl.col("Date").str.to_date(format="%d-%b-%Y"),
         )
+        if snake_case_headers:
+            return df.rename(
+                {
+                    "Scheme Code": "scheme_code",
+                    "ISIN Div Payout/ ISIN Growth": "isin_growth_or_payout",
+                    "ISIN Div Reinvestment": "isin_div_reinvestment",
+                    "Scheme Name": "scheme_name",
+                    "Net Asset Value": "nav",
+                    "Date": "date",
+                }
+            )
+        return df
 
 
 if __name__ == "__main__":
