@@ -1,13 +1,16 @@
+from __future__ import annotations
+
 import asyncio
+from types import TracebackType
+from typing import TYPE_CHECKING, Literal, Self
+
 import httpx
-from typing import Self, TYPE_CHECKING
 import polars as pl
-from typing import Literal
 
 OUTPUT_DATAFRAME_FORMAT = Literal["polars", "pandas"]
 
 if TYPE_CHECKING:
-    import pandas as pd
+    import pandas as pd  # type: ignore[import,unused-ignore]
 
 
 class SchemeParser:
@@ -17,7 +20,12 @@ class SchemeParser:
         self._client = httpx.AsyncClient(timeout=10.0)
         return self
 
-    async def __aexit__(self, *_) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         await self._client.aclose()
 
     async def fetch_nav_data(
@@ -39,7 +47,6 @@ class SchemeParser:
         try:
             response = await self._client.get(self._NAV_URL)
             response.raise_for_status()
-            return response.text
         except httpx.HTTPStatusError as e:
             raise httpx.HTTPStatusError(
                 f"AMFI responded with {e.response.status_code}",
@@ -48,6 +55,8 @@ class SchemeParser:
             ) from e
         except httpx.RequestError as e:
             raise httpx.RequestError(f"Failed to reach AMFI: {e}") from e
+        else:
+            return response.text
 
     def _parse(self, nav_text: str) -> pl.DataFrame:
         rows = [line.split(";") for line in nav_text.splitlines() if ";" in line]
@@ -57,7 +66,7 @@ class SchemeParser:
                 f"Incorrect AFMI response: expected at least 2 rows, but received {len(rows)}."
             )
         headers, *data = rows
-        df = pl.DataFrame(data=data, schema=headers, orient="row").with_columns(
+        return pl.DataFrame(data=data, schema=headers, orient="row").with_columns(
             pl.col("Scheme Code").cast(pl.Int64),
             pl.col("ISIN Div Payout/ ISIN Growth").cast(pl.String),
             pl.col("ISIN Div Reinvestment").cast(pl.String),
@@ -65,14 +74,13 @@ class SchemeParser:
             pl.col("Net Asset Value").cast(pl.Float64),
             pl.col("Date").str.to_date(format="%d-%b-%Y"),
         )
-        return df
-
-
-async def main() -> None:
-    async with SchemeParser() as client:
-        data = await client.fetch_nav_data(df_format="pandas")
-        print(data)
 
 
 if __name__ == "__main__":
+
+    async def main() -> None:
+        async with SchemeParser() as client:
+            data = await client.fetch_nav_data()
+            print(data)
+
     asyncio.run(main())
