@@ -1,11 +1,14 @@
 from __future__ import annotations  # noqa: D100
 
 import asyncio
+import logging
 from types import TracebackType
 from typing import Self
 
 import httpx
 import polars as pl
+
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class SchemeParser:
@@ -67,22 +70,22 @@ class SchemeParser:
 
         if len(rows) < 2:
             raise ValueError(f"Incorrect AFMI response: expected at least 2 rows, but received {len(rows)}.")
-        headers = [*rows[0].split(";"), "Parent Mutual Fund", "Mutual Fund Type"]
+        headers = [*rows[0].split(";"), "AMC", "Scheme Type"]
         lines = rows[1:]
 
-        parent_mf: str | None = None
-        mf_type: str | None = None
+        amc: str | None = None
+        scheme_type: str | None = None
         data: list[list[str | None]] = []
         # Parsing rows
         for line in lines:
             if ";" in line:
-                data.append([*line.split(";"), parent_mf, mf_type])
+                data.append([*line.split(";"), amc, scheme_type])
             else:
-                parent_mf = None
+                amc = None
                 if line.startswith(self._SCHEME_TYPE_PREFIXES):
-                    mf_type = line
+                    scheme_type = line
                 else:
-                    parent_mf = line
+                    amc = line
 
         return (
             pl.DataFrame(data=data, schema=headers, orient="row")
@@ -93,8 +96,8 @@ class SchemeParser:
                 pl.col("Scheme Name").cast(pl.String),
                 pl.col("Net Asset Value").cast(pl.Float64),
                 pl.col("Date").str.to_date(format="%d-%b-%Y"),
-                pl.col("Parent Mutual Fund").cast(pl.String),
-                pl.col("Mutual Fund Type").cast(pl.String),
+                pl.col("AMC").cast(pl.String),
+                pl.col("Scheme Type").cast(pl.String),
             )
             .rename(
                 {
@@ -104,8 +107,8 @@ class SchemeParser:
                     "Scheme Name": "scheme_name",
                     "Net Asset Value": "nav",
                     "Date": "date",
-                    "Parent Mutual Fund": "parent_mf",
-                    "Mutual Fund Type": "mf_type",
+                    "AMC": "amc",
+                    "Scheme Type": "scheme_type",
                 }
             )
         )
