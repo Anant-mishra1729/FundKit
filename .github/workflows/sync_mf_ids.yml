@@ -30,8 +30,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Save the generated file before switching branches
+          # Save FIRST before any branch operations
           cp mf_id_map.json /tmp/mf_id_map.json
+          rm mf_id_map.json  # remove so checkout isn't blocked
 
           # Switch to data branch — create orphan if it doesn't exist yet
           git fetch origin data 2>/dev/null && git checkout data || (
