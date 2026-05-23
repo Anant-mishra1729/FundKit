@@ -25,7 +25,7 @@ class CacheCreationError(Exception):
     pass
 
 
-class NAVStore:
+class NAVClient:
     """Fetch NAV Data from AFMI-India website."""
 
     _cache_path = Path(user_cache_dir("fundkit"))
@@ -49,8 +49,8 @@ class NAVStore:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        NAVStore._df = None
-        NAVStore._df_loaded_on = None
+        NAVClient._df = None
+        NAVClient._df_loaded_on = None
 
     async def refresh_nav_cache(self) -> None:
         """Refresh NAV Cache.
@@ -62,12 +62,12 @@ class NAVStore:
         today = date.today()
         self._log("Refreshing cache: fetching NAV data from AMFI.")
         async with SchemeParser() as parser:
-            NAVStore._df = await parser.fetch_nav_data()
-            NAVStore._df_loaded_on = today
+            NAVClient._df = await parser.fetch_nav_data()
+            NAVClient._df_loaded_on = today
         try:
             self._cache_path.mkdir(parents=True, exist_ok=True)
             cache_file_path = self._cache_path / "nav.parquet"
-            await asyncio.to_thread(NAVStore._df.write_parquet, cache_file_path)
+            await asyncio.to_thread(NAVClient._df.write_parquet, cache_file_path)
             self._log(f"NAV cache written to {cache_file_path}.")
 
         except OSError as e:
@@ -76,32 +76,32 @@ class NAVStore:
     async def _get_cache(self) -> pl.DataFrame:
         today = date.today()
 
-        if NAVStore._df is not None and NAVStore._df_loaded_on == today:
+        if NAVClient._df is not None and NAVClient._df_loaded_on == today:
             self._log("Memory hit: returning in-memory NAV DataFrame")
-            return NAVStore._df
+            return NAVClient._df
 
-        NAVStore._df = None
-        NAVStore._df_loaded_on = None
+        NAVClient._df = None
+        NAVClient._df_loaded_on = None
 
         cache_file_path = self._cache_path / "nav.parquet"
         if cache_file_path.exists() and date.fromtimestamp(cache_file_path.stat().st_mtime) == today:
             self._log(f"Disk hit: loading NAV cache from {cache_file_path}.")
-            NAVStore._df = await asyncio.to_thread(pl.read_parquet, cache_file_path)
-            NAVStore._df_loaded_on = today
-            return NAVStore._df
+            NAVClient._df = await asyncio.to_thread(pl.read_parquet, cache_file_path)
+            NAVClient._df_loaded_on = today
+            return NAVClient._df
 
         self._log("Cache miss: fetching NAV data from AMFI.")
         async with SchemeParser() as parser:
-            NAVStore._df = await parser.fetch_nav_data()
-            NAVStore._df_loaded_on = today
+            NAVClient._df = await parser.fetch_nav_data()
+            NAVClient._df_loaded_on = today
         try:
             self._cache_path.mkdir(parents=True, exist_ok=True)
-            await asyncio.to_thread(NAVStore._df.write_parquet, cache_file_path)
+            await asyncio.to_thread(NAVClient._df.write_parquet, cache_file_path)
             self._log(f"NAV cache written to {cache_file_path}.")
 
         except OSError as e:
             raise CacheCreationError("Error occured while generating NAV Cache") from e
-        return NAVStore._df
+        return NAVClient._df
 
     async def is_valid_scheme_code(self, scheme_code: int) -> bool:
         """Validate the scheme code.
@@ -283,21 +283,37 @@ if __name__ == "__main__":
     import asyncio
 
     async def main() -> None:  # noqa: D103
-        async with NAVStore(verbose=True) as store:
-            data = await store.search_scheme_by_name("quant", case_sensitive=False, suggestion_count=2)
-            print(data)
+        async with NAVClient(verbose=True) as client:
+            nav = await client.search_scheme_by_code(128628)
+            print(f"Scheme Code: {nav['scheme_code'].item()}")  # Scheme Code: 128628
+            print(f"ISIN (Growth/Payout): {nav['isin_growth_or_payout'].item()}")  # ISIN (Growth/Payout): INF179KA1JC4
+            print(f"ISIN (Div Reinvest): {nav['isin_div_reinvestment'].item()}")  # ISIN (Div Reinvest): -
+            print(
+                f"Scheme Name: {nav['scheme_name'].item()}"
+            )  # Scheme Name: HDFC Banking and PSU Debt Fund - Growth Option
+            print(f"NAV: {nav['nav'].item()}")  # NAV: 23.729
+            print(f"Date: {nav['date'].item()}")  # Date: 2026-05-22
+            print(f"AMC: {nav['amc'].item()}")  # AMC: HDFC Mutual Fund
+            print(
+                f"Scheme Type: {nav['scheme_type'].item()}"
+            )  # Scheme Type: Open Ended Schemes(Debt Scheme - Banking and PSU Fund)
 
-            data = await store.search_scheme_by_name(
-                "birla", case_sensitive=False, suggestion_count=4, df_format="pandas"
-            )
-            print(data)
+            # Multiple schemes
+            df = await client.search_scheme_by_code([119597, 120505, 108272])
 
-            await store.refresh_nav_cache()
+            # Search by name
+            results = await client.search_scheme_by_name("bluechip", case_sensitive=False)
 
-            data = await store.search_scheme_by_code(scheme_code=119551)
-            print(data)
+            # Search by AMC
+            results = await client.search_scheme_by_amc("SBI")
 
-            data = await store.search_scheme_by_type("open", case_sensitive=False, suggestion_count=5)
-            print(data)
+            # Search by fund type
+            results = await client.search_scheme_by_type("Open Ended Schemes")
+
+            # Validate scheme code
+            is_valid = await client.is_valid_scheme_code(119597)
+
+            # Force refresh cache
+            await client.refresh_nav_cache()
 
     asyncio.run(main())
