@@ -13,17 +13,19 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 MF_RANGE = range(1, 120)
-OUTPUT_PATH = Path("src/fundkit/data/mf_id_map.json")
+OUTPUT_PATH = Path("mf_id_map.json")
 
 URL = "https://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx"
 
 FROM_DATE = (date.today() - timedelta(days=5)).strftime("%d-%b-%Y")
 TO_DATE = date.today().strftime("%d-%b-%Y")
 
+
 class JsonSaveError(Exception):
     """Error raised on json write."""
 
     pass
+
 
 async def check_amfi(client: httpx.AsyncClient, mf_id: int) -> tuple[str | None, int]:
     """GET request on AMFI Download Portal.
@@ -38,7 +40,8 @@ async def check_amfi(client: httpx.AsyncClient, mf_id: int) -> tuple[str | None,
     """
     try:
         response = await client.get(
-            URL, params={"mf": mf_id, "frmdt": FROM_DATE, "todt": TO_DATE, "tp": 1},
+            URL,
+            params={"mf": mf_id, "frmdt": FROM_DATE, "todt": TO_DATE, "tp": 1},
             follow_redirects=True,
         )
         response.raise_for_status()
@@ -69,25 +72,23 @@ async def check_amfi(client: httpx.AsyncClient, mf_id: int) -> tuple[str | None,
         pass
     return None, mf_id
 
+
 async def discover_mf_ids() -> dict[str, int]:
     """Fetch Fund Name - Fund ID mapping."""
     async with httpx.AsyncClient(timeout=15) as client:
         tasks = [check_amfi(client, mf_id) for mf_id in MF_RANGE]
         results = await asyncio.gather(*tasks)
 
-    return {
-        fund_house: mf_id
-        for fund_house, mf_id in results
-        if fund_house is not None
-    }
+    return {fund_house: mf_id for fund_house, mf_id in results if fund_house is not None}
+
 
 async def main() -> None:
     """Driver method."""
     mapping = await discover_mf_ids()
     try:
         logger.info(f"Storing output mapping in {OUTPUT_PATH}")
-        with Path.open(OUTPUT_PATH, 'w') as f:
-            json.dump(mapping,f, indent=4)
+        with Path.open(OUTPUT_PATH, "w") as f:
+            json.dump(mapping, f, indent=4)
     except Exception as e:
         raise JsonSaveError(f"Cannot write the JSON data in path {OUTPUT_PATH}") from e
 
