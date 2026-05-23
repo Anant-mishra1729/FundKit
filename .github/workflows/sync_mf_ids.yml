@@ -1,0 +1,47 @@
+name: Sync AMFI Fund House IDs
+
+on:
+  schedule:
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Run sync script
+        run: python scripts/sync_mf_ids.py
+        # writes mf_id_map.json to working directory
+
+      - name: Push to data branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Save the generated file before switching branches
+          cp mf_id_map.json /tmp/mf_id_map.json
+
+          # Switch to data branch — create orphan if it doesn't exist yet
+          git fetch origin data 2>/dev/null && git checkout data || (
+            git checkout --orphan data &&
+            git rm -rf . --quiet
+          )
+
+          cp /tmp/mf_id_map.json mf_id_map.json
+          git add mf_id_map.json
+          git diff --cached --quiet && echo "No changes." || (
+            git commit -m "sync"
+            git push origin data
+          )
