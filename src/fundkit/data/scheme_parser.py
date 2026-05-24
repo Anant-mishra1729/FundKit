@@ -10,13 +10,19 @@ from typing import Self
 import httpx
 import polars as pl
 
-import fundkit.config as conf
-
 logger = logging.getLogger(__name__)
 
 
 class SchemeParser:
     """Async HTTP client for fetching NAV data from the AMFI portal."""
+
+    _DEFAULT_NAV_URL = "https://portal.amfiindia.com/spages/NAVAll.txt"
+    _DEFAULT_SCHEME_TYPE_PREFIXES = (
+        "Open Ended Schemes",
+        "Close Ended Schemes",
+        "Interval Fund",
+    )
+    _DEFAULT_MF_ID_MAP_URL = "https://raw.githubusercontent.com/Anant-mishra1729/FundKit/refs/heads/data/mf_id_map.json"
 
     def __init__(self) -> None:
         handler = logging.StreamHandler()
@@ -58,7 +64,7 @@ class SchemeParser:
 
     async def _fetch_nav(self) -> str:
         try:
-            response = await self._client.get(conf.NAV_URL)
+            response = await self._client.get(SchemeParser._DEFAULT_NAV_URL)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             raise httpx.HTTPStatusError(
@@ -88,7 +94,7 @@ class SchemeParser:
                 data.append([*line.split(";"), amc, scheme_type])
             else:
                 amc = None
-                if line.startswith(conf.SCHEME_TYPE_PREFIXES):
+                if line.startswith(SchemeParser._DEFAULT_SCHEME_TYPE_PREFIXES):
                     scheme_type = line
                 else:
                     amc = line
@@ -126,7 +132,7 @@ class SchemeParser:
 
     async def _fetch_mf_id_map(self) -> dict[str, int]:
         try:
-            response = await self._client.get(conf.MF_ID_MAP_URL)
+            response = await self._client.get(SchemeParser._DEFAULT_MF_ID_MAP_URL)
             response.raise_for_status()
             raw: dict[str, str] = response.json()
             return {k: int(v) for k, v in raw.items()}

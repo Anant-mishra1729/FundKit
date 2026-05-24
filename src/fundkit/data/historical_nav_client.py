@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Self, cast
 import httpx
 import polars as pl
 
-import fundkit.config as conf
 from fundkit.data._base_client import BaseAMFIClient
 
 if TYPE_CHECKING:
@@ -18,31 +17,46 @@ if TYPE_CHECKING:
 
 
 class HistoricalNAVClient(BaseAMFIClient):
-    """Fetch Historical NAV Data from AFMI-India."""
+    """Fetch historical Net Asset Value (NAV) data for mutual funds."""
 
     _cache_path = BaseAMFIClient._cache_path / "historical"
     _semaphore: asyncio.Semaphore | None = None
     _NAV_CACHE = BaseAMFIClient._cache_path / "nav.parquet"
-    DEFAULT_END_DATE: date | None = None
+    _DEFAULT_END_DATE: date | None = None
+    _DEFAULT_AMFI_CONCURRENCY = 5
+    _DEFAULT_MAX_RETRIES = 3
+    _DEFAULT_BACKOFF = 1.0
+    _DEFAULT_HISTORICAL_URL = "https://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx"
 
     async def __aenter__(self) -> Self:
-        HistoricalNAVClient._semaphore = asyncio.Semaphore(conf.AMFI_CONCURRENCY)
+        HistoricalNAVClient._semaphore = asyncio.Semaphore(self.max_concurrency)
         return self
 
-    def __init__(self, verbose: bool = False) -> None:
+    def __init__(
+        self,
+        verbose: bool = False,
+        max_concurrency: int = _DEFAULT_AMFI_CONCURRENCY,
+        max_retries: int = _DEFAULT_MAX_RETRIES,
+        max_backoff_limit: float = _DEFAULT_BACKOFF,
+    ) -> None:
+        self.max_concurrency = max_concurrency
+        self.max_retries = max_retries
+        self.max_backoff_limit = max_backoff_limit
         super().__init__(verbose)
 
     # ------------------- Fetch and parse functions -----------------
     @staticmethod
     def _date_chunks(start_date: date, end_date: date) -> list[tuple[date, date]]:
-        """Split date range to 89 days chunks.
+        """Split a date range into 89-day chunks.
 
         Args:
-            start_date (date): Start Date
-            end_date (date): End Date
+            start_date (date): The start date of the range.
+            end_date (date): The start date of the range.
 
         Returns:
-            list[tuple[date,date]]: Tuple of date chunks
+            list[tuple[date,date]]: A list of (start_date, end_date) tuples,
+            where each tuple represents a continuous date-range chunk of
+            at most 89 days.
 
         """
         if start_date > end_date:
@@ -77,11 +91,11 @@ class HistoricalNAVClient(BaseAMFIClient):
         """Fetch one chunk with semaphore + exponential backoff."""
         assert HistoricalNAVClient._semaphore is not None
 
-        for attempt in range(conf.MAX_RETRIES):
+        for attempt in range(self.max_retries):
             async with HistoricalNAVClient._semaphore:
                 try:
                     response = await client.get(
-                        conf.HISTORICAL_URL,
+                        HistoricalNAVClient._DEFAULT_HISTORICAL_URL,
                         params={
                             "mf": amc_id,
                             "frmdt": start.strftime("%d-%b-%Y"),
@@ -99,14 +113,15 @@ class HistoricalNAVClient(BaseAMFIClient):
                 else:
                     return response.text
 
-            if attempt < conf.MAX_RETRIES - 1:
-                backoff = conf.BASE_BACKOFF * (2**attempt) + random.uniform(0, 0.5)
+            if attempt < self.max_retries - 1:
+                backoff = self.max_backoff_limit * (2**attempt) + random.uniform(0, 0.5)
                 self._log(f"Chunk {start}→{end} attempt {attempt + 1} failed. Retrying in {backoff:.1f}s.")
                 await asyncio.sleep(backoff)
 
-        raise httpx.RequestError(f"Chunk {start} to {end} failed after {conf.MAX_RETRIES} attempts.")
+        raise httpx.RequestError(f"Chunk {start} to {end} failed after {self.max_retries} attempts.")
 
     def _parse(self, raw_chunks: list[str]) -> pl.DataFrame:
+        """Parse the historical text response from AMFI."""
         if not raw_chunks:
             raise ValueError("No data chunks to parse.")
 
@@ -155,6 +170,7 @@ class HistoricalNAVClient(BaseAMFIClient):
     async def _get_historical_cache(
         self, amc_id: int, scheme_code: int, start_date: date, end_date: date
     ) -> pl.DataFrame | None:
+        """Get cached data from disk."""
         cache_path = HistoricalNAVClient._cache_path / f"amc_{amc_id}.parquet"
         self._log(f"Reading cache {cache_path}")
         if not cache_path.exists():
@@ -199,23 +215,25 @@ class HistoricalNAVClient(BaseAMFIClient):
         end_date: date | None = None,
         df_format: BaseAMFIClient.OUTPUT_DATAFRAME_FORMAT = "polars",
     ) -> pl.DataFrame | pd.DataFrame:
-        """Search history NAV Data.
+        """Search historical NAV data for a given scheme code.
 
         Args:
-            scheme_code (int): Scheme Code
-            start_date (date): Start Date
-            end_date (date | None, optional): End Date. Defaults to None.
-            df_format (BaseAMFIClient.OUTPUT_DATAFRAME_FORMAT, optional): Output dataframe format. Defaults to "polars".
+            scheme_code (int): The mutual fund scheme code.
+            start_date (date): The start date for the NAV history range.
+            end_date (date | None, optional): The end date for the NAV history range. Defaults to today.
+            df_format (OUTPUT_DATAFRAME_FORMAT, optional): Output DataFrame format.
+                Supported values are "polars" (default) and "pandas".
 
         Raises:
-            ValueError: Raise value error if start_date > end_date
+            ValueError: If start_date is later than end_date.
 
         Returns:
-            pl.DataFrame | pd.DataFrame: NAV Data DataFrame. Defaults to "polars"
+            pl.DataFrame | pd.DataFrame: A DataFrame containing historical NAV data
+            for the specified date range.
 
         """
         if end_date is None:
-            end_date = HistoricalNAVClient.DEFAULT_END_DATE or date.today()
+            end_date = HistoricalNAVClient._DEFAULT_END_DATE or date.today()
 
         if start_date > end_date:
             raise ValueError("Start Date {start} must be before End Date {end}")
@@ -253,6 +271,14 @@ if __name__ == "__main__":
     async def main() -> None:  # noqa: D103
         async with HistoricalNAVClient(verbose=True) as client:
             data = await client.search_history(124182, start_date=date(2026, 1, 1), end_date=date.today())
+            print(data)
+
+        async with HistoricalNAVClient(verbose=True) as client:
+            data = await client.search_history(124182, start_date=date(2025, 1, 1), end_date=date(2026, 3, 31))
+            print(data)
+
+        async with HistoricalNAVClient(verbose=True) as client:
+            data = await client.search_history(124182, start_date=date(2025, 1, 1), df_format="pandas")
             print(data)
 
     asyncio.run(main())

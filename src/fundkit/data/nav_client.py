@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 class NAVClient(BaseAMFIClient):
-    """Fetch NAV Data from AFMI-India website."""
+    """Fetch the latest Net Asset Value (NAV) data for mutual funds."""
 
     _df: pl.DataFrame | None = None
     _df_loaded_on: date | None = None
@@ -23,10 +23,10 @@ class NAVClient(BaseAMFIClient):
         super().__init__(verbose)
 
     async def refresh_nav_cache(self) -> None:
-        """Refresh NAV Cache.
+        """Refresh the NAV cache.
 
         Raises:
-            CacheCreationError: OS Error occured in NAV cache creation.
+            CacheCreationError: Raised when an OS error occurs during NAV cache creation.
 
         """
         today = date.today()
@@ -49,14 +49,15 @@ class NAVClient(BaseAMFIClient):
         suggestion_count: int | None = None,
         df_format: NAVClient.OUTPUT_DATAFRAME_FORMAT = "polars",
     ) -> pl.DataFrame | pd.DataFrame:
-        """Fetch NAV data for given scheme codes.
+        """Search NAV data using scheme codes.
 
         Arg:
             scheme_code (int | list[int]): A single scheme code or a list of scheme codes.
-            df_format (OUTPUT_DATAFRAME_FORMAT, optional): Output format — "polars" (default) or "pandas".
+            df_format (OUTPUT_DATAFRAME_FORMAT, optional): Output DataFrame format.
+            Supported values are "polars" (default) and "pandas".
 
         Returns:
-            pl.DataFrame | pd.DataFrame: Filtered DataFrame with NAV data for the requested scheme(s).
+            pl.DataFrame | pd.DataFrame: A filtered DataFrame containing NAV data for the requested scheme code(s).
 
         """
         return await self._search_scheme_code(
@@ -75,19 +76,16 @@ class NAVClient(BaseAMFIClient):
         """Search schemes by name.
 
         Args:
-            query (str): A string related to scheme name
-            suggestion_count (int): Total suggestions
-            case_sensitive (bool): Case sensitive search True/False - Search is faster when case sensitivity is True
-            df_format : NAVClient.OUTPUT_DATAFRAME_FORMAT["polars", "pandas"], optional
-            Specifies the output DataFrame format.
-
-            Defaults to ``"polars"``.
-
-            Returns a pandas DataFrame if ``df_format="pandas"``.
-            ``pandas`` must be installed to use this format.
+            query (str): A search string related to the scheme name.
+            suggestion_count (int): The maximum number of suggestions to return.
+            case_sensitive (bool): Whether to perform a case-sensitive search.
+                                   Enabling case sensitivity may improve search performance.
+            df_format (OUTPUT_DATAFRAME_FORMAT, optional): Output DataFrame format.
+                                   Supported values are "polars" (default) and "pandas".
 
         Returns:
-            pl.DataFrame | None: Returns a Polars DataFrame
+            pl.DataFrame | pd.DataFrame | None: A DataFrame containing matching scheme results,
+            or None if no matches are found.
 
         """
         return await self._search_scheme_str(
@@ -105,22 +103,19 @@ class NAVClient(BaseAMFIClient):
         case_sensitive: bool = True,
         df_format: NAVClient.OUTPUT_DATAFRAME_FORMAT = "polars",
     ) -> pl.DataFrame | pd.DataFrame:
-        """Search schemes by AMC (Asset Management Company).
+        """Search schemes by AMC (Asset Management Company) name.
 
         Args:
-            query (str): A string related to AMC name
-            suggestion_count (int): Total suggestions
-            case_sensitive (bool): Case sensitive search True/False - Search is faster when case sensitivity is True
-            df_format : NAVClient.OUTPUT_DATAFRAME_FORMAT["polars", "pandas"], optional
-            Specifies the output DataFrame format.
-
-            Defaults to ``"polars"``.
-
-            Returns a pandas DataFrame if ``df_format="pandas"``.
-            ``pandas`` must be installed to use this format.
+            query (str): A search string related to the AMC name.
+            suggestion_count (int): The maximum number of suggestions to return.
+            case_sensitive (bool): Whether to perform a case-sensitive search.
+                                   Enabling case sensitivity may improve search performance.
+            df_format (OUTPUT_DATAFRAME_FORMAT, optional): Output DataFrame format.
+                                   Supported values are "polars" (default) and "pandas".
 
         Returns:
-            pl.DataFrame | None: Returns a Polars DataFrame
+           pl.DataFrame | pd.DataFrame | None: A DataFrame containing matching scheme results,
+           or None if no matches are found.
 
         """
         return await self._search_scheme_str(
@@ -138,22 +133,19 @@ class NAVClient(BaseAMFIClient):
         case_sensitive: bool = True,
         df_format: NAVClient.OUTPUT_DATAFRAME_FORMAT = "polars",
     ) -> pl.DataFrame | pd.DataFrame:
-        """Search schemes by Scheme Type.
+        """Search schemes by scheme type (Open Ended, Close ended etc).
 
         Args:
-            query (str): A string related to AMC name
-            suggestion_count (int): Total suggestions
-            case_sensitive (bool): Case sensitive search True/False - Search is faster when case sensitivity is True
-            df_format : NAVClient.OUTPUT_DATAFRAME_FORMAT["polars", "pandas"], optional
-            Specifies the output DataFrame format.
-
-            Defaults to ``"polars"``.
-
-            Returns a pandas DataFrame if ``df_format="pandas"``.
-            ``pandas`` must be installed to use this format.
+            query (str): A search string related to the scheme type.
+            suggestion_count (int): The maximum number of suggestions to return.
+            case_sensitive (bool): Whether to perform a case-sensitive search.
+                                   Enabling case sensitivity may improve search performance.
+            df_format (OUTPUT_DATAFRAME_FORMAT, optional): Output DataFrame format.
+                                   Supported values are "polars" (default) and "pandas".
 
         Returns:
-            pl.DataFrame | None: Returns a Polars DataFrame
+            pl.DataFrame | pd.DataFrame | None: A DataFrame containing matching scheme results,
+            or None if no matches are found.
 
         """
         return await self._search_scheme_str(
@@ -170,40 +162,38 @@ if __name__ == "__main__":
 
     async def main() -> None:  # noqa: D103
         async with NAVClient(verbose=True) as client:
+            # ----------- Fetch NAV data for a single scheme ----------
             nav = await client.search_scheme_by_code(128628)
-            print(f"Scheme Code: {nav['scheme_code'].item()}")  # Scheme Code: 128628
-            print(f"ISIN (Growth/Payout): {nav['isin_growth_or_payout'].item()}")  # ISIN (Growth/Payout): INF179KA1JC4
-            print(f"ISIN (Div Reinvest): {nav['isin_div_reinvestment'].item()}")  # ISIN (Div Reinvest): -
-            print(
-                f"Scheme Name: {nav['scheme_name'].item()}"
-            )  # Scheme Name: HDFC Banking and PSU Debt Fund - Growth Option
-            print(f"NAV: {nav['nav'].item()}")  # NAV: 23.729
-            print(f"Date: {nav['date'].item()}")  # Date: 2026-05-22
-            print(f"AMC: {nav['amc'].item()}")  # AMC: HDFC Mutual Fund
-            print(
-                f"Scheme Type: {nav['scheme_type'].item()}"
-            )  # Scheme Type: Open Ended Schemes(Debt Scheme - Banking and PSU Fund)
+            print("Single Scheme NAV Data")
+            print(f"Scheme Code           : {nav['scheme_code'].item()}")
+            print(f"ISIN (Growth/Payout)  : {nav['isin_growth_or_payout'].item()}")
+            print(f"ISIN (Div Reinvest)   : {nav['isin_div_reinvestment'].item()}")
+            print(f"Scheme Name           : {nav['scheme_name'].item()}")
+            print(f"NAV                   : {nav['nav'].item()}")
+            print(f"Date                  : {nav['date'].item()}")
+            print(f"AMC                   : {nav['amc'].item()}")
+            print(f"Scheme Type           : {nav['scheme_type'].item()}")
+            print()
 
-            # Multiple schemes
+            # ------------ Fetch NAV data for multiple schemes ---------
             df = await client.search_scheme_by_code([119597, 120505, 108272])
             print(df)
 
-            # Search by name
+            # ------------ Search scheme by name ----------------------
             results = await client.search_scheme_by_name("bluechip", case_sensitive=False)
 
-            # Search by AMC
+            # ------------ Search scheme by AMC -----------------------
             results = await client.search_scheme_by_amc("SBI")
 
-            # Search by fund type
+            # ------------ Search scheme by Fund type -----------------
             results = await client.search_scheme_by_type("Open Ended Schemes")
             print(results)
 
-            # Validate scheme code
+            # ------------ Validate scheme code ---------------
             is_valid = await client.is_valid_scheme_code(119597)
             print(is_valid)
 
-            # Force refresh cache
+            # ------------ Force refresh the disk-cache ----------------
             await client.refresh_nav_cache()
-            print()
 
     asyncio.run(main())

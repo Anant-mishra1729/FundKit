@@ -21,12 +21,12 @@ dependencies = [
     "platformdirs>=4.9.6",
     "polars>=1.40.1",
     "pydantic>=2.13.4",
+    "pyarrow>=24.0.0",
 ]
 
 [project.optional-dependencies]
 pandas = ["pandas>=3.0.0", "pandas-stubs>=3.0.0"]
-pyarrow = ["pyarrow>=24.0.0"]
-all = ["pandas>=3.0.0", "pandas-stubs>=3.0.0", "pyarrow>=24.0.0"]
+all = ["pandas>=3.0.0", "pandas-stubs>=3.0.0"]
 
 [project.urls]
 Homepage = "https://github.com/Anant-mishra1729/fundkit"
