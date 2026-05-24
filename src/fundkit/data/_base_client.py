@@ -1,0 +1,219 @@
+"""Base AMFI Client Class."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import date
+from pathlib import Path
+from types import TracebackType
+from typing import TYPE_CHECKING, Literal, Self
+
+import polars as pl
+from platformdirs import user_cache_dir
+
+from fundkit.data.scheme_parser import SchemeParser
+from fundkit.exceptions import CacheCreationError
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+class BaseAMFIClient:
+    """Shared base for all AMFI data clients."""
+
+    _cache_path = Path(user_cache_dir("fundkit"))
+
+    OUTPUT_DATAFRAME_FORMAT = Literal["polars", "pandas"]
+
+    # Scheme vars
+    _nav_df: pl.DataFrame | None = None
+    _nav_df_loaded_on: date | None = None
+    _scheme_codes: frozenset[int] | None = None
+    _scheme_code_to_amc_id: dict[int, int] | None = None
+
+    def __init__(self, verbose: bool = False) -> None:
+        self._verbose = verbose
+        if verbose and not logging.getLogger("fundkit").handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+            logging.getLogger("fundkit").setLevel(logging.INFO)
+            logging.getLogger("fundkit").addHandler(handler)
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        self._nav_df = None
+        self._nav_df_loaded_on = None
+
+    def _log(self, message: str) -> None:
+        if self._verbose:
+            logger.info(message)
+
+    async def _get_nav_cache(self) -> pl.DataFrame:
+        today = date.today()
+
+        # Load from memory
+        if BaseAMFIClient._nav_df is not None and BaseAMFIClient._nav_df_loaded_on == today:
+            self._log("Memory hit: returning in-memory NAV DataFrame")
+            if BaseAMFIClient._scheme_code_to_amc_id is None:
+                BaseAMFIClient._scheme_code_to_amc_id = dict(
+                    zip(
+                        BaseAMFIClient._nav_df["scheme_code"].to_list(),
+                        BaseAMFIClient._nav_df["amc_id"].to_list(),
+                        strict=True,
+                    )
+                )
+            if BaseAMFIClient._scheme_codes is None:
+                BaseAMFIClient._scheme_codes = frozenset(BaseAMFIClient._nav_df["scheme_code"].to_list())
+            return BaseAMFIClient._nav_df
+
+        # Load from disk cache
+        BaseAMFIClient._nav_df = None
+        BaseAMFIClient._nav_df_loaded_on = None
+
+        cache_file_path = self._cache_path / "nav.parquet"
+        if cache_file_path.exists() and date.fromtimestamp(cache_file_path.stat().st_mtime) == today:
+            self._log(f"Disk hit: loading NAV cache from {cache_file_path}.")
+            BaseAMFIClient._nav_df = await asyncio.to_thread(pl.read_parquet, cache_file_path)
+            BaseAMFIClient._nav_df_loaded_on = today
+            BaseAMFIClient._scheme_code_to_amc_id = dict(
+                zip(
+                    BaseAMFIClient._nav_df["scheme_code"].to_list(),
+                    BaseAMFIClient._nav_df["amc_id"].to_list(),
+                    strict=True,
+                )
+            )
+            BaseAMFIClient._scheme_codes = frozenset(BaseAMFIClient._nav_df["scheme_code"].to_list())
+            return BaseAMFIClient._nav_df
+
+        # Fetch from AMFI
+        self._log("Cache miss: fetching NAV data from AMFI.")
+        async with SchemeParser() as parser:
+            BaseAMFIClient._nav_df = await parser.fetch_nav_data()
+            BaseAMFIClient._nav_df_loaded_on = today
+        try:
+            self._cache_path.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(BaseAMFIClient._nav_df.write_parquet, cache_file_path)
+            self._log(f"NAV cache written to {cache_file_path}.")
+
+        except OSError as e:
+            raise CacheCreationError("Error occured while generating NAV Cache") from e
+
+        BaseAMFIClient._scheme_code_to_amc_id = dict(
+            zip(
+                BaseAMFIClient._nav_df["scheme_code"].to_list(),
+                BaseAMFIClient._nav_df["amc_id"].to_list(),
+                strict=True,
+            )
+        )
+        BaseAMFIClient._scheme_codes = frozenset(BaseAMFIClient._nav_df["scheme_code"].to_list())
+        return BaseAMFIClient._nav_df
+
+    async def _search_scheme_str(
+        self,
+        query: str,
+        col_type: Literal["scheme_name", "amc", "scheme_type"],
+        suggestion_count: int | None = None,
+        case_sensitive: bool = True,
+        df_format: OUTPUT_DATAFRAME_FORMAT = "polars",
+    ) -> pl.DataFrame | pd.DataFrame:
+
+        if suggestion_count is not None and suggestion_count < 1:
+            raise ValueError(f"suggestion_count must be at least 1, got {suggestion_count}.")
+
+        df = await self._get_nav_cache()
+        if col_type in ("amc", "scheme_type"):
+            col = pl.col(col_type).cast(pl.String)
+        elif not case_sensitive:
+            col = pl.col("scheme_name_lower")
+            query = query.lower()
+        else:
+            col = pl.col("scheme_name")
+
+        rows = df.filter(col.str.contains(query, literal=True))
+
+        if rows.is_empty():
+            return rows
+
+        if suggestion_count is not None:
+            rows = rows.head(suggestion_count)
+
+        rows = rows.drop("scheme_name_lower")
+
+        if df_format == "pandas":
+            return rows.to_pandas()
+        return rows
+
+    async def _search_scheme_code(
+        self,
+        scheme_code: int | list[int],
+        suggestion_count: int | None = None,
+        df_format: OUTPUT_DATAFRAME_FORMAT = "polars",
+    ) -> pl.DataFrame | pd.DataFrame:
+        if suggestion_count is not None and suggestion_count < 1:
+            raise ValueError(f"suggestion_count must be at least 1, got {suggestion_count}.")
+
+        codes = scheme_code if isinstance(scheme_code, list) else [scheme_code]
+        if not codes:
+            raise ValueError("scheme_code list cannot be empty.")
+
+        df = await self._get_nav_cache()  # ensure _scheme_codes is populated
+
+        invalid = valid_codes = None
+
+        if BaseAMFIClient._scheme_codes is not None:
+            invalid = [c for c in codes if c not in BaseAMFIClient._scheme_codes]
+            valid_codes = [c for c in codes if c in BaseAMFIClient._scheme_codes]
+
+        if invalid:
+            self._log(f"Ignoring invalid scheme code(s): {invalid}")
+
+        if not valid_codes:
+            empty = pl.DataFrame(schema=df.schema).drop("scheme_name_lower")
+            return empty.to_pandas() if df_format == "pandas" else empty
+
+        result = df.filter(pl.col("scheme_code").is_in(valid_codes)).drop("scheme_name_lower")
+
+        if suggestion_count is not None:
+            result = result.head(suggestion_count)
+
+        return result.to_pandas() if df_format == "pandas" else result
+
+    async def _search_amc_id(self, scheme_code: int) -> int | None:
+        """Lookup for AMC ID given the scheme code.
+
+        Args:
+            scheme_code (int): Scheme Code
+
+        Returns:
+            int: AMC ID
+
+        """
+        if BaseAMFIClient._scheme_code_to_amc_id is None:
+            await self._get_nav_cache()
+        assert BaseAMFIClient._scheme_code_to_amc_id is not None
+        return BaseAMFIClient._scheme_code_to_amc_id.get(scheme_code)
+
+    async def is_valid_scheme_code(self, scheme_code: int) -> bool:
+        """Validate the scheme code.
+
+        Args:
+            scheme_code (int): Scheme Code.
+
+        Returns:
+            bool: True if the scheme code is valid, otherwise False.
+
+        """
+        if BaseAMFIClient._scheme_codes is None:
+            await self._get_nav_cache()
+        assert BaseAMFIClient._scheme_codes is not None
+        return scheme_code in BaseAMFIClient._scheme_codes
