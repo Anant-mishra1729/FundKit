@@ -217,3 +217,67 @@ class BaseAMFIClient:
             await self._get_nav_cache()
         assert BaseAMFIClient._scheme_codes is not None
         return scheme_code in BaseAMFIClient._scheme_codes
+
+    async def get_scheme_codes(
+        self,
+        query: str | int | None = None,
+        by: Literal["scheme_name", "scheme_code"] | None = None,
+        df_format: OUTPUT_DATAFRAME_FORMAT = "polars",
+    ) -> pl.DataFrame | pd.DataFrame:
+        """Return scheme codes and names, optionally filtered.
+
+        Args:
+            query: Search term — int for scheme_code, str for scheme_name.
+            by: Column to filter on. Must match query type.
+            df_format: Output format.
+
+        Raises:
+            ValueError: If only one of query/by is provided.
+            ValueError: If query type doesn't match by column.
+
+        Returns:
+            DataFrame with scheme_code and scheme_name columns.
+
+        """
+        if (query is None) != (by is None):
+            raise ValueError("Both query and by must be provided together, or neither.")
+
+        df = await self._get_nav_cache()
+        result = df.select(["scheme_code", "scheme_name", "scheme_name_lower"])
+
+        if query is not None and by is not None:
+            if by == "scheme_code":
+                if not isinstance(query, int):
+                    raise ValueError(f"query must be int when by='scheme_code', got {type(query).__name__}.")
+                result = result.filter(pl.col("scheme_code") == query)
+            elif by == "scheme_name":
+                if not isinstance(query, str):
+                    raise ValueError(f"query must be str when by='scheme_name', got {type(query).__name__}.")
+                result = result.filter(pl.col("scheme_name_lower").str.contains(query.lower(), literal=True))
+
+        result = result.drop("scheme_name_lower")
+        return result.to_pandas() if df_format == "pandas" else result
+
+    async def get_amc_list(
+        self,
+        df_format: OUTPUT_DATAFRAME_FORMAT = "polars",
+    ) -> pl.DataFrame | pd.DataFrame:
+        """Return all unique AMC names with their amc_id.
+
+        Args:
+            df_format: Output format.
+
+        Returns:
+            DataFrame with amc and amc_id columns, sorted by amc_id.
+
+        """
+        df = await self._get_nav_cache()
+        result = (
+            df
+            .select(["amc", "amc_id"])
+            .with_columns(pl.col("amc").cast(pl.String))
+            .unique(subset=["amc"])
+            .drop_nulls(subset=["amc"])
+            .sort("amc_id")
+        )
+        return result.to_pandas() if df_format == "pandas" else result

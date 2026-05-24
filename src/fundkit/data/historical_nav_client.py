@@ -208,7 +208,7 @@ class HistoricalNAVClient(BaseAMFIClient):
             self._log(f"Warning: could not write AMC cache: {e}")
 
     # ------------------- Historical search ------------------
-    async def search_history(
+    async def get_history(
         self,
         scheme_code: int,
         start_date: date,
@@ -270,15 +270,15 @@ if __name__ == "__main__":
 
     async def main() -> None:  # noqa: D103
         async with HistoricalNAVClient(verbose=True) as client:
-            data = await client.search_history(124182, start_date=date(2026, 1, 1), end_date=date.today())
+            data = await client.get_history(124182, start_date=date(2026, 1, 1), end_date=date.today())
             print(data)
 
         async with HistoricalNAVClient(verbose=True) as client:
-            data = await client.search_history(124182, start_date=date(2025, 1, 1), end_date=date(2026, 3, 31))
+            data = await client.get_history(124182, start_date=date(2025, 1, 1), end_date=date(2026, 3, 31))
             print(data)
 
         async with HistoricalNAVClient(verbose=True) as client:
-            data = await client.search_history(124182, start_date=date(2025, 1, 1), df_format="pandas")
+            data = await client.get_history(124182, start_date=date(2025, 1, 1), df_format="pandas")
             print(data)
 
     asyncio.run(main())

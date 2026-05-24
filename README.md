@@ -5,7 +5,7 @@ Built on top of AMFI's public data with a typed, developer-friendly API - no thi
 
 ```python
 async with NAVClient() as client:
-    nav = await client.search_scheme_by_code(128628)
+    nav = await client.get_nav(128628)
     print(nav)
 ```
 
@@ -32,7 +32,7 @@ async def main():
 
     async with NAVClient(verbose=True) as client:  # verbose = TRUE for logging (defaults to False)
         # ----------- Fetch NAV data for a single scheme ----------
-        nav = await client.search_scheme_by_code(128628)
+        nav = await client.get_nav(128628)
         print("Single Scheme NAV Data")
         print(f"Scheme Code           : {nav['scheme_code'].item()}")
         print(f"ISIN (Growth/Payout)  : {nav['isin_growth_or_payout'].item()}")
@@ -45,17 +45,17 @@ async def main():
         print()
 
         # ------------ Fetch NAV data for multiple schemes ---------
-        df = await client.search_scheme_by_code([119597, 120505, 108272])
+        df = await client.get_nav([119597, 120505, 108272])
         print(df)
 
-        # ------------ Search scheme by name ----------------------
-        results = await client.search_scheme_by_name("bluechip", case_sensitive=False)
+        # ------------ Fetch NAV data by scheme name ---------------
+        results = await client.get_nav_by_name("bluechip", case_sensitive=False)
 
-        # ------------ Search scheme by AMC -----------------------
-        results = await client.search_scheme_by_amc("SBI")
+        # ------------ Fetch NAV data by AMC -----------------------
+        results = await client.get_nav_by_amc("SBI")
 
-        # ------------ Search scheme by Fund type -----------------
-        results = await client.search_scheme_by_type("Open Ended Schemes")
+        # ------------ Fetch NAV data by Fund type -----------------
+        results = await client.get_nav_by_type("Open Ended Schemes")
         print(results)
 
         # ------------ Validate scheme code -----------------------
@@ -77,19 +77,19 @@ from datetime import date
 
 
 async def main():
-    # ------------ Search historical NAV data with start-date, end-date default to today ----------------
+    # ------------ Fetch historical NAV data with start-date, end-date default to today ----------------
     async with HistoricalNAVClient(verbose=True) as client:
-        data = await client.search_history(124182, start_date=date(2026, 1, 1))
+        data = await client.get_history(124182, start_date=date(2026, 1, 1))
         print(data)
 
-    # ------------ Search historical NAV data with start-date and end-date ----------------
+    # ------------ Fetch historical NAV data with start-date and end-date ----------------
     async with HistoricalNAVClient(verbose=True) as client:
-        data = await client.search_history(124182, start_date=date(2025, 1, 1), end_date=date(2026, 3, 31))
+        data = await client.get_history(124182, start_date=date(2025, 1, 1), end_date=date(2026, 3, 31))
         print(data)
 
     # ------------ Output as pandas dataframe (defaults to polars) ----------------
     async with HistoricalNAVClient(verbose=True) as client:
-        data = await client.search_history(124182, start_date=date(2025, 1, 1), df_format="pandas")
+        data = await client.get_history(124182, start_date=date(2025, 1, 1), df_format="pandas")
         print(data)
 
 
@@ -99,7 +99,7 @@ asyncio.run(main())
 ### Output formats
 All bulk methods support output in both `polars (default)` and `pandas`:
 ```python
-df = await client.search_scheme_by_code([119597, 120505], fmt="pandas")
+df = await client.get_nav([119597, 120505], fmt="pandas")
 ```
 
 

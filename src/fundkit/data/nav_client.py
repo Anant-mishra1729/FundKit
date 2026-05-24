@@ -43,7 +43,7 @@ class NAVClient(BaseAMFIClient):
         except OSError as e:
             raise CacheCreationError("Error occured while generating NAV Cache") from e
 
-    async def search_scheme_by_code(
+    async def get_nav(
         self,
         scheme_code: int | list[int],
         suggestion_count: int | None = None,
@@ -66,7 +66,7 @@ class NAVClient(BaseAMFIClient):
             df_format=df_format,
         )
 
-    async def search_scheme_by_name(
+    async def get_nav_by_name(
         self,
         query: str,
         suggestion_count: int | None = None,
@@ -96,7 +96,7 @@ class NAVClient(BaseAMFIClient):
             df_format=df_format,
         )
 
-    async def search_scheme_by_amc(
+    async def get_nav_by_amc(
         self,
         query: str,
         suggestion_count: int | None = None,
@@ -126,7 +126,7 @@ class NAVClient(BaseAMFIClient):
             df_format=df_format,
         )
 
-    async def search_scheme_by_type(
+    async def get_nav_by_type(
         self,
         query: str,
         suggestion_count: int | None = None,
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     async def main() -> None:  # noqa: D103
         async with NAVClient(verbose=True) as client:
             # ----------- Fetch NAV data for a single scheme ----------
-            nav = await client.search_scheme_by_code(128628)
+            nav = await client.get_nav(128628)
             print("Single Scheme NAV Data")
             print(f"Scheme Code           : {nav['scheme_code'].item()}")
             print(f"ISIN (Growth/Payout)  : {nav['isin_growth_or_payout'].item()}")
@@ -176,17 +176,17 @@ if __name__ == "__main__":
             print()
 
             # ------------ Fetch NAV data for multiple schemes ---------
-            df = await client.search_scheme_by_code([119597, 120505, 108272])
+            df = await client.get_nav([119597, 120505, 108272])
             print(df)
 
             # ------------ Search scheme by name ----------------------
-            results = await client.search_scheme_by_name("bluechip", case_sensitive=False)
+            results = await client.get_nav_by_name("bluechip", case_sensitive=False)
 
             # ------------ Search scheme by AMC -----------------------
-            results = await client.search_scheme_by_amc("SBI")
+            results = await client.get_nav_by_amc("SBI")
 
             # ------------ Search scheme by Fund type -----------------
-            results = await client.search_scheme_by_type("Open Ended Schemes")
+            results = await client.get_nav_by_type("Open Ended Schemes")
             print(results)
 
             # ------------ Validate scheme code ---------------
@@ -195,5 +195,23 @@ if __name__ == "__main__":
 
             # ------------ Force refresh the disk-cache ----------------
             await client.refresh_nav_cache()
+
+            # ------------ Other functions ------------------
+            # All scheme codes
+            sch_codes = await client.get_scheme_codes()
+
+            # Search schem by scheme names
+            sch_codes = await client.get_scheme_codes(query="sbi", by="scheme_name")
+
+            # Search scheme by scheme code
+            sch_codes = await client.get_scheme_codes(query=123456, by="scheme_code")
+            print(sch_codes)
+
+            sch2 = await client.get_amc_list()
+            print(sch2)
+
+            # List all AMCs
+            amcs = await client.get_amc_list()
+            print(amcs)
 
     asyncio.run(main())
