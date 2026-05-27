@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date
+from importlib.util import find_spec
 from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING, Literal, Self
@@ -13,7 +14,7 @@ import polars as pl
 from platformdirs import user_cache_dir
 
 from fundkit.data.scheme_parser import SchemeParser
-from fundkit.exceptions import CacheCreationError
+from fundkit.exceptions import CacheCreationError, PandasExportError
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -57,6 +58,17 @@ class BaseAMFIClient:
     def _log(self, message: str) -> None:
         if self._verbose:
             logger.info(message)
+
+    def _export_dataframe(self, df: pl.DataFrame, df_format: OUTPUT_DATAFRAME_FORMAT) -> pl.DataFrame | pd.DataFrame:
+        if df_format == "pandas":
+            if find_spec("pandas") is None:
+                raise PandasExportError(
+                    "Pandas is required to use df_format='pandas'. "
+                    "Install it via 'pip install pandas' "
+                    "or 'pip install fundkit[pandas]'."
+                )
+            return df.to_pandas()
+        return df
 
     async def _get_nav_cache(self) -> pl.DataFrame:
         today = date.today()
@@ -149,9 +161,7 @@ class BaseAMFIClient:
 
         rows = rows.drop("scheme_name_lower")
 
-        if df_format == "pandas":
-            return rows.to_pandas()
-        return rows
+        return self._export_dataframe(rows, df_format)
 
     async def _search_scheme_code(
         self,
@@ -186,7 +196,7 @@ class BaseAMFIClient:
         if suggestion_count is not None:
             result = result.head(suggestion_count)
 
-        return result.to_pandas() if df_format == "pandas" else result
+        return self._export_dataframe(result, df_format)
 
     async def _search_amc_id(self, scheme_code: int) -> int | None:
         """Lookup for AMC ID given the scheme code.
@@ -256,7 +266,7 @@ class BaseAMFIClient:
                 result = result.filter(pl.col("scheme_name_lower").str.contains(query.lower(), literal=True))
 
         result = result.drop("scheme_name_lower")
-        return result.to_pandas() if df_format == "pandas" else result
+        return self._export_dataframe(result, df_format)
 
     async def get_amc_list(
         self,
@@ -280,4 +290,4 @@ class BaseAMFIClient:
             .drop_nulls(subset=["amc"])
             .sort("amc_id")
         )
-        return result.to_pandas() if df_format == "pandas" else result
+        return self._export_dataframe(result, df_format)

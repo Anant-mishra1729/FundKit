@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import random
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Self, cast
 
@@ -14,6 +13,19 @@ from fundkit.data._base_client import BaseAMFIClient
 
 if TYPE_CHECKING:
     import pandas as pd
+
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
+
+
+def _is_retryable(exc: BaseException) -> bool:
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code == 429 or exc.response.status_code >= 500
+        return isinstance(exc, httpx.RequestError)
 
 
 class HistoricalNAVClient(BaseAMFIClient):
@@ -81,44 +93,43 @@ class HistoricalNAVClient(BaseAMFIClient):
 
         return self._parse(raw_chunks)
 
+
     async def _fetch_chunk_with_retry(
-        self,
-        client: httpx.AsyncClient,
-        amc_id: int,
-        start: date,
-        end: date,
-    ) -> str:
-        """Fetch one chunk with semaphore + exponential backoff."""
-        assert HistoricalNAVClient._semaphore is not None
+            self,
+            client: httpx.AsyncClient,
+            amc_id: int,
+            start: date,
+            end: date,
+        ) -> str:
+            """Fetch one chunk — semaphore-limited, tenacity-retried."""
+            assert HistoricalNAVClient._semaphore is not None
 
-        for attempt in range(self.max_retries):
-            async with HistoricalNAVClient._semaphore:
-                try:
-                    response = await client.get(
-                        HistoricalNAVClient._DEFAULT_HISTORICAL_URL,
-                        params={
-                            "mf": amc_id,
-                            "frmdt": start.strftime("%d-%b-%Y"),
-                            "todt": end.strftime("%d-%b-%Y"),
-                            "tp": 1,
-                        },
-                    )
-                    response.raise_for_status()
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(self.max_retries),
+                wait=wait_exponential_jitter(
+                    initial=1,
+                    max=self.max_backoff_limit,
+                    jitter=0.5,
+                ),
+                retry=retry_if_exception(_is_retryable),
+                reraise=True,
+            ):
+                with attempt:
+                    async with HistoricalNAVClient._semaphore:
+                        response = await client.get(
+                            HistoricalNAVClient._DEFAULT_HISTORICAL_URL,
+                            params={
+                                "mf": amc_id,
+                                "frmdt": start.strftime("%d-%b-%Y"),
+                                "todt": end.strftime("%d-%b-%Y"),
+                                "tp": 1,
+                            },
+                        )
+                        response.raise_for_status()
+                        return response.text
 
-                except httpx.HTTPStatusError as e:
-                    if e.response.status_code < 429 and e.response.status_code != 500:
-                        raise  # 4xx is not rate limit - don't retry
-                except httpx.RequestError:
-                    pass  # Network failure - retry
-                else:
-                    return response.text
+            raise AssertionError("Unreachable")
 
-            if attempt < self.max_retries - 1:
-                backoff = self.max_backoff_limit * (2**attempt) + random.uniform(0, 0.5)
-                self._log(f"Chunk {start}→{end} attempt {attempt + 1} failed. Retrying in {backoff:.1f}s.")
-                await asyncio.sleep(backoff)
-
-        raise httpx.RequestError(f"Chunk {start} to {end} failed after {self.max_retries} attempts.")
 
     def _parse(self, raw_chunks: list[str]) -> pl.DataFrame:
         """Parse the historical text response from AMFI."""
@@ -236,7 +247,7 @@ class HistoricalNAVClient(BaseAMFIClient):
             end_date = HistoricalNAVClient._DEFAULT_END_DATE or date.today()
 
         if start_date > end_date:
-            raise ValueError("Start Date {start} must be before End Date {end}")
+            raise ValueError(f"Start Date {start_date} must be before End Date {end_date}")
 
         amc_id = await self._search_amc_id(scheme_code=scheme_code)
         if amc_id is None:
@@ -250,7 +261,7 @@ class HistoricalNAVClient(BaseAMFIClient):
 
         if cached_df is not None and not cached_df.is_empty():
             self._log(f"Cache hit for scheme: {scheme_code}")
-            return cached_df if df_format == "polars" else cached_df.to_pandas()
+            return self._export_dataframe(cached_df, df_format)
 
         # Fetch if not found in cache
         df = await self._fetch(amc_id=amc_id, start=start_date, end=end_date)
@@ -261,24 +272,6 @@ class HistoricalNAVClient(BaseAMFIClient):
         if scheme_df.is_empty():
             self._log(f"Scheme code {scheme_code} not found or has no fund house mapping. Returning empty DataFrame.")
             empty = pl.DataFrame(schema=df.schema)
-            return empty if df_format == "polars" else empty.to_pandas()
+            return self._export_dataframe(empty, df_format)
 
-        return scheme_df if df_format == "polars" else scheme_df.to_pandas()
-
-
-if __name__ == "__main__":
-
-    async def main() -> None:  # noqa: D103
-        async with HistoricalNAVClient(verbose=True) as client:
-            data = await client.get_history(124182, start_date=date(2026, 1, 1), end_date=date.today())
-            print(data)
-
-        async with HistoricalNAVClient(verbose=True) as client:
-            data = await client.get_history(124182, start_date=date(2025, 1, 1), end_date=date(2026, 3, 31))
-            print(data)
-
-        async with HistoricalNAVClient(verbose=True) as client:
-            data = await client.get_history(124182, start_date=date(2025, 1, 1), df_format="pandas")
-            print(data)
-
-    asyncio.run(main())
+        return self._export_dataframe(scheme_df, df_format)

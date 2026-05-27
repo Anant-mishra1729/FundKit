@@ -1,6 +1,6 @@
 [project]
 name = "fundkit"
-version = "0.1.0"
+version = "0.1.1"
 description = "Async-first Python library for Mutual Fund data and analytics"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,10 +22,14 @@ dependencies = [
     "polars>=1.40.1",
     "pydantic>=2.13.4",
     "pyarrow>=24.0.0",
+    "tenacity>=9.1.4",
 ]
 
 [project.optional-dependencies]
-pandas = ["pandas>=3.0.0", "pandas-stubs>=3.0.0"]
+pandas = [
+ "pandas>=3.0.3",
+ "pandas-stubs>=3.0.0",
+]
 all = ["pandas>=3.0.0", "pandas-stubs>=3.0.0"]
 
 [project.urls]

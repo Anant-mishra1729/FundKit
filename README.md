@@ -4,9 +4,15 @@ A modern, async-first Python library for Mutual Fund data, analytics, and portfo
 Built on top of AMFI's public data with a typed, developer-friendly API - no third-party data vendors, no black-box calculations.
 
 ```python
-async with NAVClient() as client:
-    nav = await client.get_nav(128628)
-    print(nav)
+from fundkit import NAVClient
+import asyncio
+
+async def main():
+    async with NAVClient() as client:
+        data = await client.get_nav(123456)
+        print(data)
+
+asyncio.run(main())
 ```
 
 ## Installation
@@ -114,8 +120,7 @@ The table below shows the data for Linux.
 | Cache | Location (Platform Native) | TTL Current |
 |-------| -------- | ---------- |
 | NAV | `~/.cache/fundkit/nav.parquet`| 24 hours|
-| Historical  NAV | `~/.cache/fundkit/historical/{scheme_code}.parquet` | Permanent (immutable past data) | 
-| Fund house IDs | `~/.cache/fundkit/mf_id_map.json` | 7 days| 
+| Historical  NAV | `~/.cache/fundkit/historical/amc_{amc_id}.parquet` | Permanent (immutable past data) | 
 
 ### Caching Hierarchy 
 <img src ="images/Caching.svg" width = 400px>
