@@ -1,6 +1,6 @@
 [project]
 name = "fundkit"
-version = "0.1.1"
+version = "0.1.2"
 description = "Async-first Python library for Mutual Fund data and analytics"
 readme = "README.md"
 requires-python = ">=3.12"
