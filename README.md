@@ -1,139 +1,128 @@
-# Fundkit
-A modern, async-first Python library for Mutual Fund data, analytics, and portfolio management.
+# FundKit
 
-Built on top of AMFI's public data with a typed, developer-friendly API - no third-party data vendors, no black-box calculations.
+A modern, async-first Python library for Indian mutual fund data. FundKit fetches NAV and scheme information directly from [AMFI](https://www.amfiindia.com/) - no third-party data vendors, no opaque middle layers.
+
+If you're building dashboards, research pipelines, or backend services that need reliable fund data, FundKit gives you typed DataFrames with sensible caching out of the box.
 
 ```python
-from fundkit import NAVClient
 import asyncio
+from fundkit import NAVClient
 
 async def main():
     async with NAVClient() as client:
-        data = await client.get_nav(123456)
-        print(data)
+        nav = await client.get_nav(128628)
+        print(nav)
 
 asyncio.run(main())
 ```
 
 ## Installation
+
 ```bash
 pip install fundkit
-```
-OR
-```
+# or
 uv add fundkit
 ```
 
-## Current Status
-Fundkit is under active development. The `data/` layer is complete. `schema/`, `portfolio/`, `analytics/`, `tax/`, `sip/`, `compare/` ... modules are in progress.
+Optional pandas support:
+
+```bash
+pip install fundkit[pandas]
+```
+
+## What's available
+
+The `data` module is ready to use today. Planned modules - `schema`, `portfolio`, `analytics`, `tax`, `sip`, `compare`, and more - are still in progress.
+
+| Client | Purpose |
+|--------|---------|
+| `NAVClient` | Today's NAV - lookup by scheme code, name, AMC, or fund type |
+| `HistoricalNAVClient` | NAV history for a date range |
+
+Both clients return **Polars** DataFrames by default. Pass `df_format="pandas"` if you prefer pandas. They also share helper methods for scheme validation and discovery - see the [data module docs](src/fundkit/data/README.md#api-reference) for the full list.
 
 ## Usage
-### Latest NAV data
+
 ```python
-from fundkit import NAVClient
-import asyncio
-
-
-async def main():
-
-    async with NAVClient(verbose=True) as client:  # verbose = TRUE for logging (defaults to False)
-        # ----------- Fetch NAV data for a single scheme ----------
-        nav = await client.get_nav(128628)
-        print("Single Scheme NAV Data")
-        print(f"Scheme Code           : {nav['scheme_code'].item()}")
-        print(f"ISIN (Growth/Payout)  : {nav['isin_growth_or_payout'].item()}")
-        print(f"ISIN (Div Reinvest)   : {nav['isin_div_reinvestment'].item()}")
-        print(f"Scheme Name           : {nav['scheme_name'].item()}")
-        print(f"NAV                   : {nav['nav'].item()}")
-        print(f"Date                  : {nav['date'].item()}")
-        print(f"AMC                   : {nav['amc'].item()}")
-        print(f"Scheme Type           : {nav['scheme_type'].item()}")
-        print()
-
-        # ------------ Fetch NAV data for multiple schemes ---------
-        df = await client.get_nav([119597, 120505, 108272])
-        print(df)
-
-        # ------------ Fetch NAV data by scheme name ---------------
-        results = await client.get_nav_by_name("bluechip", case_sensitive=False)
-
-        # ------------ Fetch NAV data by AMC -----------------------
-        results = await client.get_nav_by_amc("SBI")
-
-        # ------------ Fetch NAV data by Fund type -----------------
-        results = await client.get_nav_by_type("Open Ended Schemes")
-        print(results)
-
-        # ------------ Validate scheme code -----------------------
-        is_valid = await client.is_valid_scheme_code(119597)
-        print(is_valid)
-
-        # ------------ Force refresh the disk-cache ----------------
-        await client.refresh_nav_cache()
-
-
-asyncio.run(main())
-```
-
-### Historical NAV data
-```python
-from fundkit import HistoricalNAVClient
 import asyncio
 from datetime import date
-
+from fundkit import NAVClient, HistoricalNAVClient
 
 async def main():
-    # ------------ Fetch historical NAV data with start-date, end-date default to today ----------------
-    async with HistoricalNAVClient(verbose=True) as client:
-        data = await client.get_history(124182, start_date=date(2026, 1, 1))
-        print(data)
+    async with NAVClient(verbose=True) as client:
+        # Single or multiple scheme codes
+        nav = await client.get_nav(128628)
+        batch = await client.get_nav([119597, 120505, 108272])
 
-    # ------------ Fetch historical NAV data with start-date and end-date ----------------
-    async with HistoricalNAVClient(verbose=True) as client:
-        data = await client.get_history(124182, start_date=date(2025, 1, 1), end_date=date(2026, 3, 31))
-        print(data)
+        # Search by name, AMC, or fund type
+        by_name = await client.get_nav_by_name("bluechip", case_sensitive=False)
+        by_amc = await client.get_nav_by_amc("SBI")
+        by_type = await client.get_nav_by_type("Open Ended Schemes")
 
-    # ------------ Output as pandas dataframe (defaults to polars) ----------------
-    async with HistoricalNAVClient(verbose=True) as client:
-        data = await client.get_history(124182, start_date=date(2025, 1, 1), df_format="pandas")
-        print(data)
+        # Utilities
+        valid = await client.is_valid_scheme_code(119597)
+        schemes = await client.get_scheme_codes(query="bluechip", by="scheme_name")
+        amcs = await client.get_amc_list()
 
+    async with HistoricalNAVClient(verbose=True) as client:
+        history = await client.get_history(
+            124182,
+            start_date=date(2023, 1, 1),
+            end_date=date.today(),
+            df_format="pandas",  # optional - defaults to polars
+        )
 
 asyncio.run(main())
 ```
 
-### Output formats
-All bulk methods support output in both `polars (default)` and `pandas`:
-```python
-df = await client.get_nav([119597, 120505], fmt="pandas")
-```
+Set `verbose=True` on any client to print cache hits, fetches, and other log messages to the console.
 
+For architecture, caching details, output schemas, and a full method reference, see [`src/fundkit/data/README.md`](src/fundkit/data/README.md).
+
+## How FundKit compares
+
+Most Python libraries in this space follow a similar pattern: a synchronous class that wraps a third-party API (like mfapi.in), returns dicts or pandas DataFrames, and re-fetches on every call. 
+
+That works fine for one-off scripts, but it gets painful in async web apps or when you're filtering thousands of schemes repeatedly.
+
+FundKit takes a different approach:
+
+| | Typical MF data libraries | FundKit |
+|---|--------------------------|---------|
+| **Data source** | Third-party API proxy | AMFI directly |
+| **Execution model** | Synchronous (`requests`) | Async-first (`httpx` + `asyncio`) |
+| **Default output** | Dict / JSON / pandas | Typed Polars DataFrame |
+| **Bulk filtering** | Load everything, filter in Python | Vectorized Polars operations |
+| **Caching** | None or in-memory only | Memory -> disk (parquet) -> network |
+| **Typed schemas** | Untyped dicts | Consistent column names and dtypes |
+
+FundKit doesn't try to replace every feature these libraries offer (daily performance metrics, JSON export, MCP servers, etc.) - at least not yet. The focus right now is a solid, fast, cache-aware data layer you can build on top of.
 
 ## Caching
-Fundkit caches data locally to avoid unnecessary network calls.
+
+FundKit caches data locally so repeated calls in the same day don't hammer AMFI. 
+
+<img src="https://raw.githubusercontent.com/Anant-mishra1729/FundKit/411484b014abe313e17c520562c42841520606f7/images/Caching.svg" width = "400px">
 
 
-Cache is stored using platformdirs — on Linux `~/.cache/fundkit/`, on macOS `~/Library/Caches/fundkit/`, on Windows `%LOCALAPPDATA%\fundkit\`.
+Cache location is platform native:
 
-The table below shows the data for Linux.
+| Platform | Path |
+|----------|------|
+| Linux | `~/.cache/fundkit/` |
+| macOS | `~/Library/Caches/fundkit/` |
+| Windows | `%LOCALAPPDATA%\fundkit\` |
 
-| Cache | Location (Platform Native) | TTL Current |
-|-------| -------- | ---------- |
-| NAV | `~/.cache/fundkit/nav.parquet`| 24 hours|
-| Historical  NAV | `~/.cache/fundkit/historical/amc_{amc_id}.parquet` | Permanent (immutable past data) | 
+| Data | TTL |
+|------|-----|
+| Latest NAV | Same calendar day (memory + disk) |
+| Historical NAV | Permanent, append-only per AMC |
 
-### Caching Hierarchy 
-<img src ="images/Caching.svg" width = 400px>
+Historical data is never re-fetched once cached - past NAV is immutable. Latest NAV refreshes automatically when the calendar day changes.
 
-## Why Fundkit
-Most existing Python tools for mutual funds either wrap third-party APIs (mfapi.in, mftool), are synchronous-only, return untyped raw dicts, or have no concept of SIPs, switches, or tax computation.
+## Why FundKit
 
-Fundkit is built differently:
-
-* `Async-first`: Built on httpx and asyncio, usable in FastAPI, Django async views, or any modern async app.
-
-* `Typed everywhere`: Pydantic v2 models for all domain objects, polars DataFrames with proper schemas for bulk data.
-
-* `AMFI-native`: Hits AMFI directly, no middlemen that can go down.
-
-* `Polars-first`: 10–100x faster than pandas for bulk NAV operations, with optional pandas export.
+- **Async-first** - built on httpx and asyncio; fits naturally into FastAPI, Django async views, or any modern async stack
+- **AMFI-native** - one less dependency that can go down or change its API without warning
+- **Polars-first** - filtering ~15k schemes is significantly faster than row-by-row Python; pandas export is one argument away
+- **Typed and structured** - consistent column names (`scheme_code`, `nav`, `date`, …) whether you're querying one scheme or ten thousand
