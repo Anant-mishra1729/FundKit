@@ -32,21 +32,22 @@ pip install fundkit[pandas]
 
 ## What's available
 
-The `data` module is ready to use today. Planned modules - `schema`, `portfolio`, `analytics`, `tax`, `sip`, `compare`, and more - are still in progress.
+The `data` module is ready to use today. The `schema` module provides typed Pydantic models for structured responses. Planned modules - `portfolio`, `analytics`, `tax`, `sip`, `compare`, and more - are still in progress.
 
 | Client | Purpose |
 |--------|---------|
 | `NAVClient` | Today's NAV - lookup by scheme code, name, AMC, or fund type |
 | `HistoricalNAVClient` | NAV history for a date range |
+| `SchemeDetailsClient` | Scheme metadata - category, launch date, minimum investment, and more |
 
-Both clients return **Polars** DataFrames by default. Pass `df_format="pandas"` if you prefer pandas. They also share helper methods for scheme validation and discovery - see the [data module docs](src/fundkit/data/README.md#api-reference) for the full list.
+All clients return **Polars** DataFrames by default (except `SchemeDetailsClient.get_scheme_details`, which returns a typed `SchemeDetails` model). Pass `df_format="pandas"` if you prefer pandas. They also share helper methods for scheme validation and discovery - see the [data module docs](src/fundkit/data/README.md#api-reference) for the full list.
 
 ## Usage
 
 ```python
 import asyncio
 from datetime import date
-from fundkit import NAVClient, HistoricalNAVClient
+from fundkit import NAVClient, HistoricalNAVClient, SchemeDetailsClient
 
 async def main():
     async with NAVClient(verbose=True) as client:
@@ -71,6 +72,10 @@ async def main():
             end_date=date.today(),
             df_format="pandas",  # optional - defaults to polars
         )
+
+    async with SchemeDetailsClient(verbose=True) as client:
+        details = await client.get_scheme_details(128628)
+        bulk = await client.get_scheme_details_bulk([128628, 119597])
 
 asyncio.run(main())
 ```
@@ -117,6 +122,7 @@ Cache location is platform native:
 |------|-----|
 | Latest NAV | Same calendar day (memory + disk) |
 | Historical NAV | Permanent, append-only per AMC |
+| Scheme details | 7 days (memory + disk) |
 
 Historical data is never re-fetched once cached - past NAV is immutable. Latest NAV refreshes automatically when the calendar day changes.
 

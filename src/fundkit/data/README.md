@@ -8,13 +8,15 @@ Everything is **async**, optionally exports to **pandas**, and uses a **three-ti
 
 ## What's in here
 
-| File | What it does |
-|------|--------------|
-| `scheme_parser.py` | Downloads and parses AMFI's daily NAV file |
-| `_base_client.py` | Shared caching, search, and export logic |
-| `nav_client.py` | Look up today's NAV and search schemes |
-| `historical_nav_client.py` | Fetch NAV history for a date range |
-| `scheme_details.py` | Scheme metadata (work in progress) |
+| File | Client | What it does |
+|------|---|--------------|
+| `nav_client.py`| `NAVClient` | Look up today's NAV and search schemes |
+| `historical_nav_client.py` | `HistoricalNAVClient` | Fetch NAV history for a date range |
+| `scheme_details.py` | `SchemeDetailsClient` | Fetch Scheme metadata|
+| `scheme_parser.py` | - |Downloads and parses AMFI's daily NAV file |
+| `_base_client.py` | - | Shared caching, search, and export logic |
+
+The `fundkit.schema` package holds typed Pydantic models (e.g. `SchemeDetails`) used by the data clients.
 
 ---
 
@@ -24,12 +26,13 @@ Think of it as three layers - each one only talks to the layer below it:
 
 ```mermaid
 flowchart BT
-    AMFI[AMFI + ID map]
-    Parser[SchemeParser / httpx]
+    Parser[SchemeParser]
     Base[BaseAMFIClient]
-    Clients[NAVClient · HistoricalNAVClient · SchemeDetails]
+    Clients[NAVClient
+    HistoricalNAVClient 
+    SchemeDetailsClient]
 
-    AMFI --> Parser --> Base --> Clients
+    Parser --> Base --> Clients
 ```
 
 **Bottom - Transport & parsing.** `SchemeParser` knows how to read AMFI's semicolon-delimited text. It pulls the daily NAV dump and an AMC name → ID map, then returns a Polars DataFrame. Not part of the public API - clients use it internally.
@@ -40,7 +43,7 @@ flowchart BT
 
 - **`NAVClient`** - get NAV by scheme code, name, AMC, or type; force-refresh the cache
 - **`HistoricalNAVClient`** - date-range history per scheme (fetches in 89-day chunks, caches per AMC)
-- **`SchemeDetails`** - scheme metadata from a separate AMFI endpoint (7-day cache, in progress)
+- **`SchemeDetailsClient`** - scheme metadata from a separate AMFI endpoint (7-day cache)
 
 ---
 
@@ -70,6 +73,19 @@ flowchart LR
 ```
 
 Looks up the scheme's AMC from the daily NAV cache, checks if local history already covers the range, and fetches missing chunks concurrently if not.
+
+### Scheme details
+
+```mermaid
+flowchart LR
+    A[get_scheme_details] --> B{Cache?}
+    B -->|hit| C[Lookup & return]
+    B -->|miss| D[Fetch from AMFI]
+    D --> E[Enrich with amc_id]
+    E --> C
+```
+
+Scheme metadata is cached for 7 days. On fetch, rows are enriched with `amc_id` from the daily NAV cache. Single-scheme lookups return a typed `SchemeDetails` model; bulk lookups return a DataFrame.
 
 ### Daily NAV download
 
@@ -104,17 +120,21 @@ Historical cache doesn't use a fixed TTL - if the file already has data close en
 
 **Historical NAV** - same core columns plus `repurchase_price` and `sale_price`
 
-Both return Polars DataFrames by default. Pass `df_format="pandas"` if you prefer pandas.
+**Scheme details (single lookup)** - a `SchemeDetails` Pydantic model with `scheme_code`, `scheme_name`, `scheme_nav_name`, `scheme_type`, `scheme_category`, `amc`, `amc_id`, `isin`, `minimum_amount_raw`, `minimum_amount`, `launch_date`, and `closure_date`
+
+**Scheme details (bulk lookup)** - same fields as a DataFrame
+
+All DataFrame methods return Polars by default. Pass `df_format="pandas"` if you prefer pandas.
 
 ---
 
 ## API reference
 
-All clients are used as async context managers (`async with NAVClient() as client:`). Every query method accepts an optional `df_format` argument - `"polars"` (default) or `"pandas"`.
+All clients are used as async context managers (`async with NAVClient() as client:`). Query methods that return DataFrames accept an optional `df_format` argument - `"polars"` (default) or `"pandas"`.
 
 ### Shared methods
 
-Available on both `NAVClient` and `HistoricalNAVClient` (inherited from `BaseAMFIClient`).
+Available on all clients that inherit from `BaseAMFIClient` (`NAVClient`, `HistoricalNAVClient`, and `SchemeDetailsClient`).
 
 #### `is_valid_scheme_code(scheme_code)`
 
@@ -220,9 +240,30 @@ history = await client.get_history(
 
 Fetched data is cached permanently per AMC in `historical/amc_{amc_id}.parquet`. Subsequent calls for the same AMC and date range are served from disk.
 
-### `SchemeDetails` *(in progress)*
+### `SchemeDetailsClient`
 
-Will provide scheme metadata (expense ratio, fund manager, benchmark, etc.) from a separate AMFI endpoint. Not yet part of the public API - exported in a future release.
+Fetches scheme metadata from a separate AMFI endpoint. Data is cached for 7 days in memory and on disk.
+
+**Constructor:** `SchemeDetailsClient(verbose=False)` - set `verbose=True` to log cache hits and network fetches.
+
+#### `get_scheme_details(scheme_code)`
+
+Return a typed `SchemeDetails` model for a single scheme, or `None` if the code is not found.
+
+```python
+details = await client.get_scheme_details(128628)
+if details:
+    print(details.scheme_category, details.minimum_amount)
+```
+
+#### `get_scheme_details_bulk(scheme_codes, df_format="polars")`
+
+Return metadata for multiple schemes as a DataFrame. Raises `ValueError` if `scheme_codes` is empty. Returns an empty DataFrame if none of the codes are found.
+
+```python
+bulk = await client.get_scheme_details_bulk([128628, 119597])
+bulk = await client.get_scheme_details_bulk([128628, 119597], df_format="pandas")
+```
 
 ---
 
@@ -231,7 +272,7 @@ Will provide scheme metadata (expense ratio, fund manager, benchmark, etc.) from
 ```python
 import asyncio
 from datetime import date
-from fundkit import NAVClient, HistoricalNAVClient
+from fundkit import NAVClient, HistoricalNAVClient, SchemeDetailsClient
 
 
 async def main():
@@ -246,6 +287,10 @@ async def main():
             end_date=date.today(),
         )
 
+    async with SchemeDetailsClient(verbose=True) as client:
+        details = await client.get_scheme_details(128628)
+        bulk = await client.get_scheme_details_bulk([128628, 119597])
+
 
 asyncio.run(main())
 ```
@@ -254,10 +299,12 @@ asyncio.run(main())
 
 ## Why it's built this way
 
-**Shared NAV cache** - Historical lookups need `scheme_code → amc_id`, which comes from the daily dump. One cache in the base class means no duplicate fetches.
+**Shared NAV cache** - Historical lookups and scheme details both need `scheme_code → amc_id`, which comes from the daily dump. One cache in the base class means no duplicate fetches.
 
 **Separate parsers for latest vs historical** - Different AMFI endpoints, different formats, different rules (89-day windows). Keeping them apart keeps each one simple.
 
 **Polars by default** - Filtering ~15k schemes is much faster. Pandas is opt-in via `df_format="pandas"`.
 
 **Class-level cache** - NAV updates once a day. Sharing state across instances avoids redundant disk reads when you spin up multiple clients in the same app.
+
+**Typed models for single lookups** - `get_scheme_details` returns a frozen Pydantic `SchemeDetails` model with parsed fields like `minimum_amount`, while bulk queries stay in DataFrame form for filtering and joins.
