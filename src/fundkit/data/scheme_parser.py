@@ -134,7 +134,7 @@ class SchemeParser:
         try:
             response = await self._client.get(SchemeParser._DEFAULT_MF_ID_MAP_URL)
             response.raise_for_status()
-            raw: dict[str, str] = response.json()
+            raw: dict[str, int] = response.json()
             return {k: int(v) for k, v in raw.items()}
         except httpx.HTTPStatusError as e:
             raise httpx.HTTPStatusError(

@@ -20,7 +20,7 @@ Everything is **async**, optionally exports to **pandas**, and uses a **three-ti
 
 ## How it's organized
 
-Think of it as three layers — each one only talks to the layer below it:
+Think of it as three layers - each one only talks to the layer below it:
 
 ```mermaid
 flowchart BT
@@ -32,15 +32,15 @@ flowchart BT
     AMFI --> Parser --> Base --> Clients
 ```
 
-**Bottom — Transport & parsing.** `SchemeParser` knows how to read AMFI's semicolon-delimited text. It pulls the daily NAV dump and an AMC name → ID map, then returns a Polars DataFrame. Not part of the public API — clients use it internally.
+**Bottom - Transport & parsing.** `SchemeParser` knows how to read AMFI's semicolon-delimited text. It pulls the daily NAV dump and an AMC name → ID map, then returns a Polars DataFrame. Not part of the public API - clients use it internally.
 
-**Middle — Shared infrastructure.** `BaseAMFIClient` handles caching (`~/.cache/fundkit/` on Linux), building a scheme index, search helpers, and optional pandas export. The NAV table lives in class-level memory, so it's loaded once per day no matter how many clients you create.
+**Middle - Shared infrastructure.** `BaseAMFIClient` handles caching (`~/.cache/fundkit/` on Linux), building a scheme index, search helpers, and optional pandas export. The NAV table lives in class-level memory, so it's loaded once per day no matter how many clients you create.
 
-**Top — Public clients.** Each client adds methods for a specific job:
+**Top - Public clients.** Each client adds methods for a specific job:
 
-- **`NAVClient`** — get NAV by scheme code, name, AMC, or type; force-refresh the cache
-- **`HistoricalNAVClient`** — date-range history per scheme (fetches in 89-day chunks, caches per AMC)
-- **`SchemeDetails`** — scheme metadata from a separate AMFI endpoint (7-day cache, in progress)
+- **`NAVClient`** - get NAV by scheme code, name, AMC, or type; force-refresh the cache
+- **`HistoricalNAVClient`** - date-range history per scheme (fetches in 89-day chunks, caches per AMC)
+- **`SchemeDetails`** - scheme metadata from a separate AMFI endpoint (7-day cache, in progress)
 
 ---
 
@@ -94,15 +94,15 @@ Two parallel downloads (NAV dump + AMC ID map), parse into a DataFrame, done.
 | Historical NAV | `historical/amc_{id}.parquet` | Forever (append-only) |
 | Scheme details | `scheme_details.parquet` | 7 days |
 
-Historical cache doesn't use a fixed TTL — if the file already has data close enough to your start date (within 2 days, to cover weekends/holidays), it's reused.
+Historical cache doesn't use a fixed TTL - if the file already has data close enough to your start date (within 2 days, to cover weekends/holidays), it's reused.
 
 ---
 
 ## What you get back
 
-**Latest NAV** — `scheme_code`, `scheme_name`, `nav`, `date`, `amc`, `amc_id`, `scheme_type`, ISIN fields
+**Latest NAV** - `scheme_code`, `scheme_name`, `nav`, `date`, `amc`, `amc_id`, `scheme_type`, ISIN fields
 
-**Historical NAV** — same core columns plus `repurchase_price` and `sale_price`
+**Historical NAV** - same core columns plus `repurchase_price` and `sale_price`
 
 Both return Polars DataFrames by default. Pass `df_format="pandas"` if you prefer pandas.
 
@@ -110,7 +110,7 @@ Both return Polars DataFrames by default. Pass `df_format="pandas"` if you prefe
 
 ## API reference
 
-All clients are used as async context managers (`async with NAVClient() as client:`). Every query method accepts an optional `df_format` argument — `"polars"` (default) or `"pandas"`.
+All clients are used as async context managers (`async with NAVClient() as client:`). Every query method accepts an optional `df_format` argument - `"polars"` (default) or `"pandas"`.
 
 ### Shared methods
 
@@ -149,7 +149,7 @@ amcs = await client.get_amc_list()
 
 Fetches the latest NAV for all ~15k AMFI-registered schemes. Data refreshes once per calendar day.
 
-**Constructor:** `NAVClient(verbose=False)` — set `verbose=True` to log cache hits and network fetches.
+**Constructor:** `NAVClient(verbose=False)` - set `verbose=True` to log cache hits and network fetches.
 
 #### `get_nav(scheme_code, suggestion_count=None, df_format="polars")`
 
@@ -179,7 +179,7 @@ sbi = await client.get_nav_by_amc("SBI")
 
 #### `get_nav_by_type(query, suggestion_count=None, case_sensitive=True, df_format="polars")`
 
-Filter schemes by fund type — e.g. `"Open Ended Schemes"`, `"Close Ended Schemes"`.
+Filter schemes by fund type - e.g. `"Open Ended Schemes"`, `"Close Ended Schemes"`.
 
 ```python
 open_ended = await client.get_nav_by_type("Open Ended Schemes")
@@ -199,8 +199,8 @@ Fetches date-range NAV history for a single scheme. AMFI limits each request to 
 
 **Constructor:** `HistoricalNAVClient(verbose=False, max_concurrency=5, max_retries=3, max_backoff_limit=1.0)`
 
-- `max_concurrency` — how many AMFI requests run in parallel
-- `max_retries` / `max_backoff_limit` — retry behaviour on rate limits (429) and server errors (5xx)
+- `max_concurrency` - how many AMFI requests run in parallel
+- `max_retries` / `max_backoff_limit` - retry behaviour on rate limits (429) and server errors (5xx)
 
 #### `get_history(scheme_code, start_date, end_date=None, df_format="polars")`
 
@@ -222,7 +222,7 @@ Fetched data is cached permanently per AMC in `historical/amc_{amc_id}.parquet`.
 
 ### `SchemeDetails` *(in progress)*
 
-Will provide scheme metadata (expense ratio, fund manager, benchmark, etc.) from a separate AMFI endpoint. Not yet part of the public API — exported in a future release.
+Will provide scheme metadata (expense ratio, fund manager, benchmark, etc.) from a separate AMFI endpoint. Not yet part of the public API - exported in a future release.
 
 ---
 
@@ -232,6 +232,7 @@ Will provide scheme metadata (expense ratio, fund manager, benchmark, etc.) from
 import asyncio
 from datetime import date
 from fundkit import NAVClient, HistoricalNAVClient
+
 
 async def main():
     async with NAVClient(verbose=True) as client:
@@ -245,6 +246,7 @@ async def main():
             end_date=date.today(),
         )
 
+
 asyncio.run(main())
 ```
 
@@ -252,10 +254,10 @@ asyncio.run(main())
 
 ## Why it's built this way
 
-**Shared NAV cache** — Historical lookups need `scheme_code → amc_id`, which comes from the daily dump. One cache in the base class means no duplicate fetches.
+**Shared NAV cache** - Historical lookups need `scheme_code → amc_id`, which comes from the daily dump. One cache in the base class means no duplicate fetches.
 
-**Separate parsers for latest vs historical** — Different AMFI endpoints, different formats, different rules (89-day windows). Keeping them apart keeps each one simple.
+**Separate parsers for latest vs historical** - Different AMFI endpoints, different formats, different rules (89-day windows). Keeping them apart keeps each one simple.
 
-**Polars by default** — Filtering ~15k schemes is much faster. Pandas is opt-in via `df_format="pandas"`.
+**Polars by default** - Filtering ~15k schemes is much faster. Pandas is opt-in via `df_format="pandas"`.
 
-**Class-level cache** — NAV updates once a day. Sharing state across instances avoids redundant disk reads when you spin up multiple clients in the same app.
+**Class-level cache** - NAV updates once a day. Sharing state across instances avoids redundant disk reads when you spin up multiple clients in the same app.
