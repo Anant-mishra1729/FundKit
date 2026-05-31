@@ -1,4 +1,4 @@
-"""Base AMFI Client Class."""
+"""Base AMFI Client."""
 
 from __future__ import annotations
 
@@ -52,12 +52,28 @@ class BaseAMFIClient:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        self._nav_df = None
-        self._nav_df_loaded_on = None
+        BaseAMFIClient._nav_df = None
+        BaseAMFIClient._nav_df_loaded_on = None
 
     def _log(self, message: str) -> None:
         if self._verbose:
             logger.info(message)
+
+    @staticmethod
+    def _build_indices(df: pl.DataFrame) -> None:
+        """Populate the shared scheme-code lookup structures from a loaded NAV DataFrame.
+
+        Called once after every cache load (memory, disk, or network) so the
+        three previously duplicated blocks are a single source of truth.
+        """
+        BaseAMFIClient._scheme_code_to_amc_id = dict(
+            zip(
+                df["scheme_code"].to_list(),
+                df["amc_id"].to_list(),
+                strict=True,
+            )
+        )
+        BaseAMFIClient._scheme_codes = frozenset(df["scheme_code"].to_list())
 
     def _export_dataframe(self, df: pl.DataFrame, df_format: OUTPUT_DATAFRAME_FORMAT) -> pl.DataFrame | pd.DataFrame:
         if df_format == "pandas":
@@ -76,16 +92,8 @@ class BaseAMFIClient:
         # Load from memory
         if BaseAMFIClient._nav_df is not None and BaseAMFIClient._nav_df_loaded_on == today:
             self._log("Memory hit: returning in-memory NAV DataFrame")
-            if BaseAMFIClient._scheme_code_to_amc_id is None:
-                BaseAMFIClient._scheme_code_to_amc_id = dict(
-                    zip(
-                        BaseAMFIClient._nav_df["scheme_code"].to_list(),
-                        BaseAMFIClient._nav_df["amc_id"].to_list(),
-                        strict=True,
-                    )
-                )
-            if BaseAMFIClient._scheme_codes is None:
-                BaseAMFIClient._scheme_codes = frozenset(BaseAMFIClient._nav_df["scheme_code"].to_list())
+            if BaseAMFIClient._scheme_code_to_amc_id is None or BaseAMFIClient._scheme_codes is None:
+                BaseAMFIClient._build_indices(BaseAMFIClient._nav_df)
             return BaseAMFIClient._nav_df
 
         # Load from disk cache
@@ -97,14 +105,7 @@ class BaseAMFIClient:
             self._log(f"Disk hit: loading NAV cache from {cache_file_path}.")
             BaseAMFIClient._nav_df = await asyncio.to_thread(pl.read_parquet, cache_file_path)
             BaseAMFIClient._nav_df_loaded_on = today
-            BaseAMFIClient._scheme_code_to_amc_id = dict(
-                zip(
-                    BaseAMFIClient._nav_df["scheme_code"].to_list(),
-                    BaseAMFIClient._nav_df["amc_id"].to_list(),
-                    strict=True,
-                )
-            )
-            BaseAMFIClient._scheme_codes = frozenset(BaseAMFIClient._nav_df["scheme_code"].to_list())
+            BaseAMFIClient._build_indices(BaseAMFIClient._nav_df)
             return BaseAMFIClient._nav_df
 
         # Fetch from AMFI
@@ -120,14 +121,7 @@ class BaseAMFIClient:
         except OSError as e:
             raise CacheCreationError("Error occured while generating NAV Cache") from e
 
-        BaseAMFIClient._scheme_code_to_amc_id = dict(
-            zip(
-                BaseAMFIClient._nav_df["scheme_code"].to_list(),
-                BaseAMFIClient._nav_df["amc_id"].to_list(),
-                strict=True,
-            )
-        )
-        BaseAMFIClient._scheme_codes = frozenset(BaseAMFIClient._nav_df["scheme_code"].to_list())
+        BaseAMFIClient._build_indices(BaseAMFIClient._nav_df)
         return BaseAMFIClient._nav_df
 
     async def _search_scheme_str(

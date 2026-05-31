@@ -5,7 +5,7 @@ description = "Async-first Python library for Mutual Fund data and analytics"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "Your Name", email = "you@email.com" }]
+authors = [{ name = "Anant Mishra" }]
 keywords = ["mutual funds", "amfi", "india", "nav", "sip", "xirr", "finance"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -26,10 +26,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-pandas = [
- "pandas>=3.0.3",
- "pandas-stubs>=3.0.0",
-]
+pandas = ["pandas>=3.0.3", "pandas-stubs>=3.0.0"]
 all = ["pandas>=3.0.0", "pandas-stubs>=3.0.0"]
 
 [project.urls]
@@ -40,6 +37,10 @@ Issues = "https://github.com/Anant-mishra1729/fundkit/issues"
 [build-system]
 requires = ["uv_build>=0.11.12,<0.12.0"]
 build-backend = "uv_build"
+
+[tool.uv.build.include]
+"src/fundkit/data/_bundled/**" = true
+
 
 [dependency-groups]
 dev = [

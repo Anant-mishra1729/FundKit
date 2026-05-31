@@ -1,4 +1,4 @@
-"""Scheme Details."""
+"""Scheme Details: Pydantic model."""
 
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ class SchemeDetailsClient(BaseAMFIClient):
                     "amc",
                     "amc_id",
                     "isin",
-                    "minimum_amount",
+                    "minimum_amount_raw",
                     "launch_date",
                     "closure_date",
                 )

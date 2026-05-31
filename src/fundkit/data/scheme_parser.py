@@ -25,11 +25,12 @@ class SchemeParser:
     _DEFAULT_MF_ID_MAP_URL = "https://raw.githubusercontent.com/Anant-mishra1729/FundKit/refs/heads/data/mf_id_map.json"
 
     def __init__(self) -> None:
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-        logging.getLogger("fundkit").setLevel(logging.INFO)
-        logging.getLogger("fundkit").addHandler(handler)
-        logging.getLogger("httpx").setLevel(logging.WARNING)
+        if not logging.getLogger("fundkit").handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+            logging.getLogger("fundkit").setLevel(logging.INFO)
+            logging.getLogger("fundkit").addHandler(handler)
+            logging.getLogger("httpx").setLevel(logging.WARNING)
 
     async def __aenter__(self) -> Self:
         self._client = httpx.AsyncClient(timeout=10.0)
@@ -144,14 +145,3 @@ class SchemeParser:
             ) from e
         except httpx.RequestError as e:
             raise httpx.RequestError(f"Failed to fetch MF ID map: {e}") from e
-
-
-if __name__ == "__main__":
-
-    async def main() -> None:
-        """Test function."""
-        async with SchemeParser() as client:
-            data = await client.fetch_nav_data()
-            print(data)
-
-    asyncio.run(main())

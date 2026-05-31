@@ -1,4 +1,4 @@
-"""Historical NAV Data."""
+"""Historical NAV Client: Get historical NAV data."""
 
 from __future__ import annotations
 
@@ -23,26 +23,21 @@ from tenacity import (
 
 
 def _is_retryable(exc: BaseException) -> bool:
-        if isinstance(exc, httpx.HTTPStatusError):
-            return exc.response.status_code == 429 or exc.response.status_code >= 500
-        return isinstance(exc, httpx.RequestError)
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code == 429 or exc.response.status_code >= 500
+    return isinstance(exc, httpx.RequestError)
 
 
 class HistoricalNAVClient(BaseAMFIClient):
     """Fetch historical Net Asset Value (NAV) data for mutual funds."""
 
     _cache_path = BaseAMFIClient._cache_path / "historical"
-    _semaphore: asyncio.Semaphore | None = None
     _NAV_CACHE = BaseAMFIClient._cache_path / "nav.parquet"
     _DEFAULT_END_DATE: date | None = None
     _DEFAULT_AMFI_CONCURRENCY = 5
     _DEFAULT_MAX_RETRIES = 3
     _DEFAULT_BACKOFF = 1.0
     _DEFAULT_HISTORICAL_URL = "https://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx"
-
-    async def __aenter__(self) -> Self:
-        HistoricalNAVClient._semaphore = asyncio.Semaphore(self.max_concurrency)
-        return self
 
     def __init__(
         self,
@@ -54,7 +49,12 @@ class HistoricalNAVClient(BaseAMFIClient):
         self.max_concurrency = max_concurrency
         self.max_retries = max_retries
         self.max_backoff_limit = max_backoff_limit
+        self._semaphore: asyncio.Semaphore | None = None
         super().__init__(verbose)
+
+    async def __aenter__(self) -> Self:
+        self._semaphore = asyncio.Semaphore(self.max_concurrency)
+        return self
 
     # ------------------- Fetch and parse functions -----------------
     @staticmethod
@@ -72,7 +72,7 @@ class HistoricalNAVClient(BaseAMFIClient):
 
         """
         if start_date > end_date:
-            raise ValueError("Start Date {start} must be before End Date {end}")
+            raise ValueError(f"Start Date {start_date} must be before End Date {end_date}")
 
         chunks = []
         current_start = start_date
@@ -93,43 +93,43 @@ class HistoricalNAVClient(BaseAMFIClient):
 
         return self._parse(raw_chunks)
 
-
     async def _fetch_chunk_with_retry(
-            self,
-            client: httpx.AsyncClient,
-            amc_id: int,
-            start: date,
-            end: date,
-        ) -> str:
-            """Fetch one chunk — semaphore-limited, tenacity-retried."""
-            assert HistoricalNAVClient._semaphore is not None
+        self,
+        client: httpx.AsyncClient,
+        amc_id: int,
+        start: date,
+        end: date,
+    ) -> str:
+        """Fetch one chunk — semaphore-limited, tenacity-retried."""
+        assert self._semaphore is not None, (
+            "Semaphore not initialised - use 'async with HistoricalNAVClient() as client:'"
+        )
 
-            async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(self.max_retries),
-                wait=wait_exponential_jitter(
-                    initial=1,
-                    max=self.max_backoff_limit,
-                    jitter=0.5,
-                ),
-                retry=retry_if_exception(_is_retryable),
-                reraise=True,
-            ):
-                with attempt:
-                    async with HistoricalNAVClient._semaphore:
-                        response = await client.get(
-                            HistoricalNAVClient._DEFAULT_HISTORICAL_URL,
-                            params={
-                                "mf": amc_id,
-                                "frmdt": start.strftime("%d-%b-%Y"),
-                                "todt": end.strftime("%d-%b-%Y"),
-                                "tp": 1,
-                            },
-                        )
-                        response.raise_for_status()
-                        return response.text
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(self.max_retries),
+            wait=wait_exponential_jitter(
+                initial=1,
+                max=self.max_backoff_limit,
+                jitter=0.5,
+            ),
+            retry=retry_if_exception(_is_retryable),
+            reraise=True,
+        ):
+            with attempt:
+                async with self._semaphore:
+                    response = await client.get(
+                        HistoricalNAVClient._DEFAULT_HISTORICAL_URL,
+                        params={
+                            "mf": amc_id,
+                            "frmdt": start.strftime("%d-%b-%Y"),
+                            "todt": end.strftime("%d-%b-%Y"),
+                            "tp": 1,
+                        },
+                    )
+                    response.raise_for_status()
+                    return response.text
 
-            raise AssertionError("Unreachable")
-
+        raise AssertionError("Unreachable")
 
     def _parse(self, raw_chunks: list[str]) -> pl.DataFrame:
         """Parse the historical text response from AMFI."""
@@ -199,10 +199,13 @@ class HistoricalNAVClient(BaseAMFIClient):
             return None
 
         min_cached = cast(date, scheme_df["date"].min())
+        max_cached = cast(date, scheme_df["date"].max())
 
         # Allow up to 2 days gap on start - covers weekends/holidays
         # Eg: user requests 2023-01-01 (Sunday), AMFI has 2023-01-02 (Monday)
-        if start_date < min_cached - timedelta(days=2):  # Compairing with tolerance of 2 days (Weekends)
+        if start_date < min_cached - timedelta(days=2) and end_date <= max_cached + timedelta(
+            days=2
+        ):  # Compairing with tolerance of 2 days (Weekends)
             return None
         return scheme_df.filter(pl.col("date").is_between(start_date, end_date))
 
@@ -252,7 +255,19 @@ class HistoricalNAVClient(BaseAMFIClient):
         amc_id = await self._search_amc_id(scheme_code=scheme_code)
         if amc_id is None:
             self._log(f"Scheme code {scheme_code} not found or has no fund house mapping. Returning empty DataFrame.")
-            return pl.DataFrame() if df_format == "polars" else pd.DataFrame()
+            empty = pl.DataFrame(
+                schema={
+                    "scheme_code": pl.Int64,
+                    "scheme_name": pl.String,
+                    "isin_growth_or_payout": pl.String,
+                    "isin_div_reinvestment": pl.String,
+                    "nav": pl.Float64,
+                    "repurchase_price": pl.Float64,
+                    "sale_price": pl.Float64,
+                    "date": pl.Date,
+                }
+            )
+            return self._export_dataframe(empty, df_format)
 
         # Search cache
         cached_df = await self._get_historical_cache(

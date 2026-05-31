@@ -1,8 +1,8 @@
-name: Sync AMFI Fund House IDs
+name: Sync MF ID Map
 
 on:
   schedule:
-    - cron: '30 18 * * *'
+    - cron: '0 19 1 * *'   # 00:30 IST on 1st of every month
   workflow_dispatch:
 
 jobs:
@@ -21,28 +21,26 @@ jobs:
       - name: Install dependencies
         run: pip install httpx
 
-      - name: Run sync script
+      - name: Run sync
+        id: sync
         run: python scripts/sync_mf_ids.py
-        # writes mf_id_map.json to working directory
+        continue-on-error: true
 
       - name: Push to data branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Save FIRST before any branch operations
           cp mf_id_map.json /tmp/mf_id_map.json
-          rm mf_id_map.json  # remove so checkout isn't blocked
+          rm mf_id_map.json
 
-          # Switch to data branch — create orphan if it doesn't exist yet
           git fetch origin data 2>/dev/null && git checkout data || (
-            git checkout --orphan data &&
-            git rm -rf . --quiet
+            git checkout --orphan data && git rm -rf . --quiet
           )
 
           cp /tmp/mf_id_map.json mf_id_map.json
           git add mf_id_map.json
           git diff --cached --quiet && echo "No changes." || (
-            git commit -m "sync"
+            git commit -m "sync: update MF ID map $(date +'%Y-%m')"
             git push origin data
           )

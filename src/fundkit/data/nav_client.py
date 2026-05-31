@@ -1,4 +1,6 @@
-from __future__ import annotations  # noqa: D100
+"""NAV Client: Get latest NAV data."""
+
+from __future__ import annotations
 
 import asyncio
 from datetime import date
@@ -17,9 +19,6 @@ if TYPE_CHECKING:
 class NAVClient(BaseAMFIClient):
     """Fetch the latest Net Asset Value (NAV) data for mutual funds."""
 
-    _df: pl.DataFrame | None = None
-    _df_loaded_on: date | None = None
-
     def __init__(self, verbose: bool = False) -> None:
         super().__init__(verbose)
 
@@ -33,12 +32,12 @@ class NAVClient(BaseAMFIClient):
         today = date.today()
         self._log("Refreshing cache: fetching NAV data from AMFI.")
         async with SchemeParser() as parser:
-            NAVClient._df = await parser.fetch_nav_data()
-            NAVClient._df_loaded_on = today
+            BaseAMFIClient._nav_df = await parser.fetch_nav_data()
+            BaseAMFIClient._nav_df_loaded_on = today
         try:
             self._cache_path.mkdir(parents=True, exist_ok=True)
             cache_file_path = self._cache_path / "nav.parquet"
-            await asyncio.to_thread(NAVClient._df.write_parquet, cache_file_path)
+            await asyncio.to_thread(BaseAMFIClient._nav_df.write_parquet, cache_file_path)
             self._log(f"NAV cache written to {cache_file_path}.")
 
         except OSError as e:
