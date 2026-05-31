@@ -38,9 +38,6 @@ Issues = "https://github.com/Anant-mishra1729/fundkit/issues"
 requires = ["uv_build>=0.11.12,<0.12.0"]
 build-backend = "uv_build"
 
-[tool.uv.build.include]
-"src/fundkit/data/_bundled/**" = true
-
 
 [dependency-groups]
 dev = [
