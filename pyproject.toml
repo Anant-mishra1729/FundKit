@@ -4,7 +4,7 @@ version = "0.1.3"
 description = "Async-first Python library for Mutual Fund data and analytics"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT"
 license-files = ["LICENSE.md"]
 authors = [{ name = "Anant Mishra" }]
 keywords = ["mutual funds", "amfi", "india", "nav", "sip", "xirr", "finance"]

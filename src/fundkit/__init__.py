@@ -6,4 +6,4 @@ from fundkit.data.scheme_details import SchemeDetailsClient
 
 __all__ = ["HistoricalNAVClient", "NAVClient", "SchemeDetailsClient"]
 
-__version__ = "0.1.0"
+__version__ = "0.1.3"
