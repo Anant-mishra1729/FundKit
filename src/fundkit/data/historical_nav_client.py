@@ -32,11 +32,9 @@ class HistoricalNAVClient(BaseAMFIClient):
     """Fetch historical Net Asset Value (NAV) data for mutual funds."""
 
     _cache_path = BaseAMFIClient._cache_path / "historical"
-    _NAV_CACHE = BaseAMFIClient._cache_path / "nav.parquet"
-    _DEFAULT_END_DATE: date | None = None
     _DEFAULT_AMFI_CONCURRENCY = 5
     _DEFAULT_MAX_RETRIES = 3
-    _DEFAULT_BACKOFF = 1.0
+    _DEFAULT_BACKOFF = 30.0
     _DEFAULT_HISTORICAL_URL = "https://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx"
 
     def __init__(
@@ -88,9 +86,17 @@ class HistoricalNAVClient(BaseAMFIClient):
         chunks = self._date_chunks(start, end)
         self._log(f"Fetching {len(chunks)} chunk(s) for AMC ID: {amc_id}.")
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            raw_chunks = await asyncio.gather(*[self._fetch_chunk_with_retry(client, amc_id, s, e) for s, e in chunks])
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0)) as client:
+            results = await asyncio.gather(
+                *[self._fetch_chunk_with_retry(client, amc_id, s, e) for s, e in chunks], return_exceptions=True
+            )
+        errors = [r for r in results if isinstance(r, BaseException)]
+        raw_chunks = [r for r in results if isinstance(r, str)]
 
+        if errors:
+            self._log(f"{len(errors)}/{len(chunks)} chunk(s) failed for AMC ID {amc_id}")
+        if not raw_chunks:
+            raise errors[0]
         return self._parse(raw_chunks)
 
     async def _fetch_chunk_with_retry(
@@ -247,7 +253,7 @@ class HistoricalNAVClient(BaseAMFIClient):
 
         """
         if end_date is None:
-            end_date = HistoricalNAVClient._DEFAULT_END_DATE or date.today()
+            end_date = date.today()
 
         if start_date > end_date:
             raise ValueError(f"Start Date {start_date} must be before End Date {end_date}")

@@ -1,6 +1,21 @@
-# FundKit
+<img src = "images/Fundkit_logo.svg" width = "350px"/>
 
-A modern, async-first Python library for Indian mutual fund data. FundKit fetches NAV and scheme information directly from [AMFI](https://www.amfiindia.com/) - no third-party data vendors, no opaque middle layers.
+<div align="left">
+<img src="https://img.shields.io/badge/python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python Version"/>
+<img src="https://img.shields.io/pypi/v/fundkit?style=for-the-badge&color=blue&logo=pypi&logoColor=white" alt="PyPI Version"/>
+<img src="https://img.shields.io/github/license/Anant-mishra1729/fundkit?style=for-the-badge&color=orange" alt="License"/>
+</div>
+
+<p align="left">
+  <img src="https://img.shields.io/badge/checked%20with-mypy-blue?style=for-the-badge&logo=python&logoColor=yellow" />
+  <img src="https://img.shields.io/badge/powered%20by-polars-303030?style=for-the-badge&logo=polars&logoColor=lightblue" />
+</p>
+
+---
+
+Modern, async-first Python toolkit for Indian mutual fund analytics.
+
+FundKit fetches NAV and scheme information directly from [AMFI](https://www.amfiindia.com/) - no third-party data vendors, no opaque middle layers. 
 
 If you're building dashboards, research pipelines, or backend services that need reliable fund data, FundKit gives you typed DataFrames with sensible caching out of the box.
 
@@ -8,10 +23,12 @@ If you're building dashboards, research pipelines, or backend services that need
 import asyncio
 from fundkit import NAVClient
 
+
 async def main():
     async with NAVClient() as client:
         nav = await client.get_nav(128628)
         print(nav)
+
 
 asyncio.run(main())
 ```
@@ -49,6 +66,7 @@ import asyncio
 from datetime import date
 from fundkit import NAVClient, HistoricalNAVClient, SchemeDetailsClient
 
+
 async def main():
     async with NAVClient(verbose=True) as client:
         # Single or multiple scheme codes
@@ -76,6 +94,7 @@ async def main():
     async with SchemeDetailsClient(verbose=True) as client:
         details = await client.get_scheme_details(128628)
         bulk = await client.get_scheme_details_bulk([128628, 119597])
+
 
 asyncio.run(main())
 ```
