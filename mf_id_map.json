@@ -31,6 +31,7 @@
     "360 ONE Mutual Fund": 62,
     "Groww Mutual Fund": 63,
     "PPFAS Mutual Fund": 64,
+    "IL&FS Mutual Fund (IDF)": 65,
     "Shriram Mutual Fund": 67,
     "Mahindra Manulife Mutual Fund": 69,
     "ITI Mutual Fund": 70,
@@ -48,5 +49,9 @@
     "Jio BlackRock Mutual Fund": 82,
     "The Wealth Company Mutual Fund": 83,
     "Choice Mutual Fund": 84,
-    "Abakkus Mutual Fund": 85
+    "Abakkus Mutual Fund": 85,
+    "AlphaGrep Mutual Fund": 86,
+    "ASK MUTUAL FUND": 87,
+    "Lakshya Mutual Fund": 88,
+    "Monarch Mutual Fund": 89
 }
