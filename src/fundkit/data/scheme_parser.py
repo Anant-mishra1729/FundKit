@@ -30,10 +30,11 @@ class SchemeParser:
             handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
             logging.getLogger("fundkit").setLevel(logging.INFO)
             logging.getLogger("fundkit").addHandler(handler)
-            logging.getLogger("httpx").setLevel(logging.WARNING)
 
     async def __aenter__(self) -> Self:
-        self._client = httpx.AsyncClient(timeout=10.0)
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0)
+        )
         return self
 
     async def __aexit__(
@@ -108,7 +109,7 @@ class SchemeParser:
                 pl.col("ISIN Div Payout/ ISIN Growth").cast(pl.String),
                 pl.col("ISIN Div Reinvestment").cast(pl.String),
                 pl.col("Scheme Name").cast(pl.String),
-                pl.col("Net Asset Value").cast(pl.Float64),
+                pl.col("Net Asset Value").str.replace(r"^-$", "").cast(pl.Float64, strict=False),
                 pl.col("Date").str.to_date(format="%d-%b-%Y"),
                 pl.col("AMC").cast(pl.Categorical),
                 pl.col("Scheme Type").cast(pl.Categorical),
