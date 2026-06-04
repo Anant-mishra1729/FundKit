@@ -29,6 +29,20 @@ flowchart LR
     Parser --> Base --> Clients
 ```
 
+### Shared client utilities (`BaseAMFIClient`)
+- **Cache handling**: memory → disk → network with atomic parquet writes.
+- **Scheme lookup helpers**:
+  - `is_valid_scheme_code(scheme_code)` – validate a code.
+  - `get_scheme_codes(query=None, by=None)` – list or search codes.
+  - `list_schemes(...)` – dropdown‑ready list with filtering by AMC, type, etc.
+  - `search_schemes(query, limit=50, case_sensitive=False)` – autocomplete search.
+  - `get_scheme_types()` – distinct scheme types.
+  - `get_amc_list()` – distinct AMC names.
+- **Cache clearing**: `clear_memory_caches()` releases in‑process caches for all clients.
+
+These utilities are exposed via `fundkit.data.__all__`.
+
+
 **`SchemeParser`** - reads AMFI semicolon-delimited text (daily NAV dump + AMC name -> ID map). Internal only.
 
 **`BaseAMFIClient`** - cache under `platformdirs` (e.g. `~/.cache/fundkit/` on Linux), scheme index, search helpers, pandas export. NAV is held at class level so one load per day is shared across client instances.
